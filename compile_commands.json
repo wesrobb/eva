@@ -1,0 +1,7 @@
+[
+{
+  "directory": "/Users/wes/src/learn-appkit/build",
+  "command": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc    -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.15.sdk   -g -o CMakeFiles/learn-appkit.dir/main.m.o   -c /Users/wes/src/learn-appkit/main.m",
+  "file": "/Users/wes/src/learn-appkit/main.m"
+}
+]
