@@ -1,0 +1,22 @@
+﻿---
+BasedOnStyle: LLVM
+AlignConsecutiveMacros: 'true'
+AlignConsecutiveAssignments: 'true'
+AlignConsecutiveDeclarations: 'true'
+AlignOperands: 'true'
+AllowShortBlocksOnASingleLine: 'false'
+AllowShortCaseLabelsOnASingleLine: 'false'
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: None
+BinPackArguments: 'false'
+BinPackParameters: 'false'
+Cpp11BracedListStyle: 'false'
+IndentWidth: '4'
+PointerAlignment: Right
+UseTab: Never
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+
+...
