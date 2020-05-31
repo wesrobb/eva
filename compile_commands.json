@@ -1,7 +1,12 @@
 [
 {
-  "directory": "/Users/wes/src/learn-appkit/build",
-  "command": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc    -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.15.sdk   -g -o CMakeFiles/learn-appkit.dir/main.m.o   -c /Users/wes/src/learn-appkit/main.m",
-  "file": "/Users/wes/src/learn-appkit/main.m"
+  "directory": "/Users/wes/src/eva/build",
+  "command": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc    -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.15.sdk   -g -o CMakeFiles/eva.dir/main.c.o   -c /Users/wes/src/eva/main.c",
+  "file": "/Users/wes/src/eva/main.c"
+},
+{
+  "directory": "/Users/wes/src/eva/build",
+  "command": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/cc    -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.15.sdk   -g -o CMakeFiles/eva.dir/eva_macos.m.o   -c /Users/wes/src/eva/eva_macos.m",
+  "file": "/Users/wes/src/eva/eva_macos.m"
 }
 ]

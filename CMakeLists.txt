@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(learn-appkit)
+project(eva)
 
-add_executable(learn-appkit main.m)
-target_link_libraries(learn-appkit "-framework Cocoa")
-target_compile_options(learn-appkit PRIVATE -g)
+add_executable(eva main.c eva_macos.m)
+target_link_libraries(eva "-framework Cocoa")
+target_compile_options(eva PRIVATE -g)
 
 add_custom_target(
     copy-compile-commands ALL
