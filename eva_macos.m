@@ -21,9 +21,10 @@ typedef struct eva_ctx {
     bool        quit_requested;
     bool        quit_ordered;
 
-    eva_cleanup_fn *cleanup_fn;
-    eva_event_fn *  event_fn;
+    eva_init_fn *   init_fn;
     eva_frame_fn *  frame_fn;
+    eva_event_fn *  event_fn;
+    eva_cleanup_fn *cleanup_fn;
     eva_fail_fn *   fail_fn;
 } eva_ctx;
 
@@ -35,12 +36,14 @@ static eva_window_delegate *_app_window_delegate;
 static eva_view *           _app_view;
 
 void eva_run(const char *    window_title,
+             eva_init_fn *   init_fn,
              eva_frame_fn *  frame_fn,
              eva_event_fn *  event_fn,
              eva_cleanup_fn *cleanup_fn,
              eva_fail_fn *   fail_fn)
 {
     _ctx.window_title = window_title;
+    _ctx.init_fn      = init_fn;
     _ctx.frame_fn     = frame_fn;
     _ctx.event_fn     = event_fn;
     _ctx.cleanup_fn   = cleanup_fn;
@@ -60,35 +63,62 @@ void eva_cancel_quit()
     _ctx.quit_ordered   = false;
 }
 
+void eva_request_frame()
+{
+    [_app_view setNeedsDisplay:YES];
+}
+
+int32_t eva_get_window_width()
+{
+    return _ctx.window_width;
+}
+
+int32_t eva_get_window_height()
+{
+    return _ctx.window_height;
+}
+
+int32_t eva_get_framebuffer_width()
+{
+    return _ctx.framebuffer_width;
+}
+
+int32_t eva_get_framebuffer_height()
+{
+    return _ctx.framebuffer_height;
+}
+
+float eva_get_framebuffer_scale_x()
+{
+    return _ctx.scale_x;
+}
+
+float eva_get_framebuffer_scale_y()
+{
+    return _ctx.scale_y;
+}
+
 static void eva_update_window(void)
 {
     NSRect window_bounds  = _app_window.contentView.bounds;
     NSRect backing_bounds = [_app_window convertRectToBacking:window_bounds];
 
-    _ctx.window_width  = window_bounds.size.width;
-    _ctx.window_height = window_bounds.size.height;
+    _ctx.window_width  = (int32_t)window_bounds.size.width;
+    _ctx.window_height = (int32_t)window_bounds.size.height;
 
-    _ctx.scale_x = backing_bounds.size.width / window_bounds.size.width;
-    _ctx.scale_y = backing_bounds.size.height / window_bounds.size.height;
+    _ctx.scale_x =
+        (float)(backing_bounds.size.width / window_bounds.size.width);
+    _ctx.scale_y =
+        (float)(backing_bounds.size.height / window_bounds.size.height);
 
     _ctx.framebuffer_width  = (int32_t)(_ctx.window_width * _ctx.scale_x);
     _ctx.framebuffer_height = (int32_t)(_ctx.window_height * _ctx.scale_y);
     if (_ctx.framebuffer) {
         free(_ctx.framebuffer);
     }
-    _ctx.framebuffer = calloc(_ctx.framebuffer_width * _ctx.framebuffer_height,
-                              sizeof(eva_pixel));
 
-    eva_event event = {
-        .type                      = EVA_EVENTTYPE_WINDOW,
-        .window.window_width       = _ctx.window_width,
-        .window.window_height      = _ctx.window_height,
-        .window.framebuffer_width  = _ctx.framebuffer_width,
-        .window.framebuffer_height = _ctx.framebuffer_height,
-        .window.scale_x            = _ctx.scale_x,
-        .window.scale_y            = _ctx.scale_y,
-    };
-    _ctx.event_fn(&event);
+    int32_t size     = _ctx.framebuffer_width * _ctx.framebuffer_height;
+    _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
 }
 
 @implementation eva_app_delegate
@@ -112,6 +142,7 @@ static void eva_update_window(void)
     _app_window.restorable              = YES;
 
     eva_update_window();
+    _ctx.init_fn();
 
     // Setup window delegate
     _app_window_delegate = [[eva_window_delegate alloc] init];
@@ -163,6 +194,17 @@ static void eva_update_window(void)
 - (void)windowDidResize:(NSNotification *)notification
 {
     eva_update_window();
+
+    eva_event event = {
+        .type                      = EVA_EVENTTYPE_WINDOW,
+        .window.window_width       = _ctx.window_width,
+        .window.window_height      = _ctx.window_height,
+        .window.framebuffer_width  = _ctx.framebuffer_width,
+        .window.framebuffer_height = _ctx.framebuffer_height,
+        .window.scale_x            = _ctx.scale_x,
+        .window.scale_y            = _ctx.scale_y,
+    };
+    _ctx.event_fn(&event);
 }
 
 - (void)windowDidMiniaturize:(NSNotification *)notification
@@ -186,23 +228,26 @@ static void eva_update_window(void)
     // Colorspace RGB
     CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
 
-    _ctx.frame_fn(
-        _ctx.framebuffer, _ctx.framebuffer_width, _ctx.framebuffer_height);
+    _ctx.frame_fn(_ctx.framebuffer,
+                  _ctx.framebuffer_width,
+                  _ctx.framebuffer_height,
+                  _ctx.scale_x,
+                  _ctx.scale_y);
     // Provider
-    uint32_t size =
-        _ctx.framebuffer_width * _ctx.framebuffer_height * sizeof(eva_pixel);
-    CGDataProviderRef provider =
-        CGDataProviderCreateWithData(nil, _ctx.framebuffer, size, nil);
+    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height *
+                   (int32_t)sizeof(eva_pixel);
+    CGDataProviderRef provider = CGDataProviderCreateWithData(
+        nil, _ctx.framebuffer, (uint32_t)size, nil);
 
     // CGImage
     CGImageRef image =
-        CGImageCreate(_ctx.framebuffer_width,
-                      _ctx.framebuffer_height,
+        CGImageCreate((size_t)_ctx.framebuffer_width,
+                      (size_t)_ctx.framebuffer_height,
                       8,
                       32,
-                      4 * _ctx.framebuffer_width,
+                      sizeof(eva_pixel) * (size_t)_ctx.framebuffer_width,
                       colorSpace,
-                      kCGBitmapByteOrder32Little,
+                      kCGBitmapByteOrder32Big,
                       provider,
                       nil,                        // No decode
                       NO,                         // No interpolation
@@ -257,36 +302,99 @@ static void eva_update_window(void)
 }
 - (void)mouseDown:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y,
+                    .mouse.left_button_pressed = true };
+    _ctx.event_fn(&e);
 }
 - (void)mouseUp:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y,
+                    .mouse.left_button_released = true };
+    _ctx.event_fn(&e);
 }
 - (void)rightMouseDown:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y,
+                    .mouse.right_button_pressed = true };
+    _ctx.event_fn(&e);
 }
 - (void)rightMouseUp:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y,
+                    .mouse.right_button_released = true };
+    _ctx.event_fn(&e);
 }
 - (void)otherMouseDown:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y,
+                    .mouse.middle_button_pressed = true };
+    _ctx.event_fn(&e);
 }
 - (void)otherMouseUp:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y,
+                    .mouse.middle_button_released = true };
+    _ctx.event_fn(&e);
 }
 - (void)mouseMoved:(NSEvent *)event
 {
     NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
 
-    eva_event e = { .type    = EVA_EVENTTYPE_MOUSE,
-                    .mouse.x = mouse_position.x,
-                    .mouse.y = mouse_position.y };
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y };
     _ctx.event_fn(&e);
 }
 - (void)mouseDragged:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y };
+    _ctx.event_fn(&e);
 }
 - (void)rightMouseDragged:(NSEvent *)event
 {
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
+                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
+                    .mouse.x    = (int32_t)mouse_position.x,
+                    .mouse.y    = (int32_t)mouse_position.y };
+    _ctx.event_fn(&e);
 }
 - (void)scrollWheel:(NSEvent *)event
 {
