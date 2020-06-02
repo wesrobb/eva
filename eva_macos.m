@@ -42,6 +42,9 @@ void eva_run(const char *    window_title,
              eva_cleanup_fn *cleanup_fn,
              eva_fail_fn *   fail_fn)
 {
+    // Usually time init would go first but macos's
+    // timers require no initialization.
+
     _ctx.window_title = window_title;
     _ctx.init_fn      = init_fn;
     _ctx.frame_fn     = frame_fn;
@@ -412,3 +415,37 @@ static void eva_update_window(void)
 {
 }
 @end
+
+// time
+
+#include <time.h>
+
+void eva_time_init()
+{
+    // No-op on macos.
+}
+
+uint64_t eva_time_now()
+{
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+}
+
+uint64_t eva_time_since(uint64_t start)
+{
+    return eva_time_now() - start;
+}
+
+double eva_time_ms(uint64_t t)
+{
+    return t / 1000000.0f;
+}
+
+double eva_time_elapsed_ms(uint64_t start, uint64_t end)
+{
+    return eva_time_ms(end - start);
+}
+
+double eva_time_since_ms(uint64_t start)
+{
+    return eva_time_elapsed_ms(start, eva_time_now());
+}

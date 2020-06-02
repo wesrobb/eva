@@ -71,3 +71,11 @@ int32_t eva_get_framebuffer_height();
 
 float eva_get_framebuffer_scale_x();
 float eva_get_framebuffer_scale_y();
+
+void eva_time_init();
+uint64_t eva_time_now();
+uint64_t eva_time_since(uint64_t start);
+
+double eva_time_ms(uint64_t t);
+double eva_time_elapsed_ms(uint64_t start, uint64_t end);
+double eva_time_since_ms(uint64_t start);
