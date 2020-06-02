@@ -11,6 +11,9 @@
 }
 - (void)drawRect:(NSRect)bounds;
 @end
+@interface eva_layer_delegate : NSObject <CALayerDelegate>
+@end
+
 
 typedef struct eva_ctx {
     int32_t     window_width, window_height;
@@ -153,8 +156,9 @@ static void eva_update_window(void)
 
     // Setup view
     _app_view = [[eva_view alloc] init];
-    [_app_view setWantsLayer:YES];
+    _app_view.wantsLayer = YES;
     [_app_view updateTrackingAreas];
+    _app_view.layer.delegate = [[eva_layer_delegate alloc] init];
 
     // Assign view to window
     _app_window.contentView = _app_view;
@@ -224,45 +228,6 @@ static void eva_update_window(void)
 @implementation eva_view
 - (void)drawRect:(NSRect)bound
 {
-    // Get current context
-    CGContextRef context =
-        (CGContextRef)[[NSGraphicsContext currentContext] CGContext];
-
-    // Colorspace RGB
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-
-    _ctx.frame_fn(_ctx.framebuffer,
-                  _ctx.framebuffer_width,
-                  _ctx.framebuffer_height,
-                  _ctx.scale_x,
-                  _ctx.scale_y);
-    // Provider
-    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height *
-                   (int32_t)sizeof(eva_pixel);
-    CGDataProviderRef provider = CGDataProviderCreateWithData(
-        nil, _ctx.framebuffer, (uint32_t)size, nil);
-
-    // CGImage
-    CGImageRef image =
-        CGImageCreate((size_t)_ctx.framebuffer_width,
-                      (size_t)_ctx.framebuffer_height,
-                      8,
-                      32,
-                      sizeof(eva_pixel) * (size_t)_ctx.framebuffer_width,
-                      colorSpace,
-                      kCGBitmapByteOrder32Big,
-                      provider,
-                      nil,                        // No decode
-                      NO,                         // No interpolation
-                      kCGRenderingIntentDefault); // Default rendering
-
-    // Draw
-    CGContextDrawImage(context, self.bounds, image);
-
-    // Once everything is written on screen we can release everything
-    CGImageRelease(image);
-    CGColorSpaceRelease(colorSpace);
-    CGDataProviderRelease(provider);
 }
 - (void)viewDidChangeBackingProperties
 {
@@ -413,6 +378,48 @@ static void eva_update_window(void)
 }
 - (void)cursorUpdate:(NSEvent *)event
 {
+}
+@end
+
+@implementation eva_layer_delegate
+- (void)displayLayer:(CALayer *)layer 
+{
+    uint64_t start = eva_time_now();
+
+    printf("DrawRect Init %.2f\n", eva_time_since_ms(start));
+    start = eva_time_now();
+
+    eva_rect dirty_rect;
+    _ctx.frame_fn(_ctx.framebuffer,
+                  _ctx.framebuffer_width,
+                  _ctx.framebuffer_height,
+                  _ctx.scale_x,
+                  _ctx.scale_y,
+                  &dirty_rect);
+
+    printf("DrawRect Frame %.2f\n", eva_time_since_ms(start));
+    start = eva_time_now();
+
+
+    @autoreleasepool {
+        NSBitmapImageRep *rep = [[[NSBitmapImageRep alloc] initWithBitmapDataPlanes: (uint8_t**)&_ctx.framebuffer 
+                                  pixelsWide: _ctx.framebuffer_width
+                                  pixelsHigh: _ctx.framebuffer_height
+                                  bitsPerSample: 8
+                                  samplesPerPixel: 4
+                                  hasAlpha: YES
+                                  isPlanar: NO
+                                  colorSpaceName: NSDeviceRGBColorSpace
+                                  bytesPerRow: (uint32_t)_ctx.framebuffer_width * sizeof(eva_pixel)
+                                  bitsPerPixel: sizeof(eva_pixel) * 8] autorelease];
+
+        NSSize imageSize = NSMakeSize(_ctx.framebuffer_width, _ctx.framebuffer_height);
+        NSImage *image = [[[NSImage alloc] initWithSize: imageSize] autorelease];
+        [image addRepresentation: rep];
+        layer.contents = image;
+    }
+
+    printf("DrawRect NS %.2f\n", eva_time_since_ms(start));
 }
 @end
 

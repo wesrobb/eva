@@ -42,6 +42,10 @@ typedef struct eva_pixel {
     uint8_t r, g, b, a;
 } eva_pixel;
 
+typedef struct eva_rect {
+    int32_t x, y, w, h;
+} eva_rect;
+
 typedef void(eva_init_fn)(void);
 typedef void(eva_cleanup_fn)(void);
 typedef void(eva_event_fn)(eva_event *event);
@@ -49,7 +53,8 @@ typedef void(eva_frame_fn)(eva_pixel *framebuffer,
                            int32_t    framebuffer_width,
                            int32_t    framebuffer_height,
                            float      scale_x,
-                           float      scale_y);
+                           float      scale_y,
+                           eva_rect *dirty_rect);
 typedef void(eva_fail_fn)(int32_t error_code, const char *error_string);
 
 void eva_run(const char *    window_title,
