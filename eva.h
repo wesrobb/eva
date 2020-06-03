@@ -54,7 +54,7 @@ typedef void(eva_frame_fn)(eva_pixel *framebuffer,
                            int32_t    framebuffer_height,
                            float      scale_x,
                            float      scale_y,
-                           eva_rect *dirty_rect);
+                           eva_rect   dirty_rect);
 typedef void(eva_fail_fn)(int32_t error_code, const char *error_string);
 
 void eva_run(const char *    window_title,
@@ -67,10 +67,12 @@ void eva_run(const char *    window_title,
 void eva_cancel_quit();
 
 void eva_request_frame();
+void eva_request_frame_rect(eva_rect *dirty_rect);
 
 int32_t eva_get_window_width();
 int32_t eva_get_window_height();
 
+eva_pixel *eva_get_framebuffer();
 int32_t eva_get_framebuffer_width();
 int32_t eva_get_framebuffer_height();
 
@@ -84,3 +86,5 @@ uint64_t eva_time_since(uint64_t start);
 double eva_time_ms(uint64_t t);
 double eva_time_elapsed_ms(uint64_t start, uint64_t end);
 double eva_time_since_ms(uint64_t start);
+
+eva_rect eva_rect_union(eva_rect *a, eva_rect *b);

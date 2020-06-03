@@ -1,5 +1,7 @@
 #import <Cocoa/Cocoa.h>
 
+#include <stdbool.h>
+
 #include "eva.h"
 
 @interface eva_app_delegate : NSObject <NSApplicationDelegate>
@@ -9,8 +11,7 @@
 @interface eva_view : NSView {
     NSTrackingArea *trackingArea;
 }
-- (BOOL)wantsUpdateLayer;
-- (void)updateLayer;
+- (void)drawRect:(NSRect)dirtyRect;
 @end
 
 typedef struct eva_ctx {
@@ -72,6 +73,12 @@ void eva_request_frame()
     [_app_view setNeedsDisplay:YES];
 }
 
+void eva_request_frame_rect(eva_rect *dirty_rect)
+{
+    NSRect r = NSMakeRect(dirty_rect->x, dirty_rect->y, dirty_rect->w, dirty_rect->h);
+    [_app_view setNeedsDisplayInRect:r];
+}
+
 int32_t eva_get_window_width()
 {
     return _ctx.window_width;
@@ -80,6 +87,11 @@ int32_t eva_get_window_width()
 int32_t eva_get_window_height()
 {
     return _ctx.window_height;
+}
+
+eva_pixel *eva_get_framebuffer()
+{
+    return _ctx.framebuffer;
 }
 
 int32_t eva_get_framebuffer_width()
@@ -154,7 +166,7 @@ static void eva_update_window(void)
 
     // Setup view
     _app_view = [[eva_view alloc] init];
-    _app_view.wantsLayer = YES;
+    _app_view.wantsLayer = NO;
     [_app_view updateTrackingAreas];
 
     // Assign view to window
@@ -223,48 +235,63 @@ static void eva_update_window(void)
 @end
 
 @implementation eva_view
-- (BOOL)wantsUpdateLayer
-{
-    return YES;
-}
--(void)updateLayer
+- (void)drawRect:(NSRect)dirtyRect
 {
     uint64_t start = eva_time_now();
 
-    printf("UpdateLayer Init %.2f\n", eva_time_since_ms(start));
-    start = eva_time_now();
+    // Get current context
+    CGContextRef context =
+        (CGContextRef)[[NSGraphicsContext currentContext] CGContext];
 
-    eva_rect dirty_rect;
-    _ctx.frame_fn(_ctx.framebuffer,
-                  _ctx.framebuffer_width,
-                  _ctx.framebuffer_height,
-                  _ctx.scale_x,
-                  _ctx.scale_y,
-                  &dirty_rect);
+    // Colorspace RGB
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
 
-    printf("UpdateLayer Frame %.2f\n", eva_time_since_ms(start));
-    start = eva_time_now();
+    eva_rect dirty_rect = {
+        .x = (int32_t)(dirtyRect.origin.x * _ctx.scale_x),
+        .y = (int32_t)(dirtyRect.origin.y * _ctx.scale_y),
+        .w = (int32_t)(dirtyRect.size.width * _ctx.scale_x),
+        .h = (int32_t)(dirtyRect.size.height * _ctx.scale_y),
+    };
+    //_ctx.frame_fn(_ctx.framebuffer,
+    //              _ctx.framebuffer_width,
+    //              _ctx.framebuffer_height,
+    //              _ctx.scale_x,
+    //              _ctx.scale_y,
+    //              dirty_rect);
+    // Provider
+    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height *
+                   (int32_t)sizeof(eva_pixel);
+    CGDataProviderRef provider = CGDataProviderCreateWithData(
+        nil, _ctx.framebuffer, (uint32_t)size, nil);
 
+    // CGImage
+    CGImageRef image =
+        CGImageCreate((size_t)_ctx.framebuffer_width,
+                      (size_t)_ctx.framebuffer_height,
+                      8,
+                      32,
+                      sizeof(eva_pixel) * (size_t)_ctx.framebuffer_width,
+                      colorSpace,
+                      kCGBitmapByteOrder32Big,
+                      provider,
+                      nil,                        // No decode
+                      NO,                         // No interpolation
+                      kCGRenderingIntentDefault); // Default rendering
+    CGImageRef subImage = CGImageCreateWithImageInRect(
+            image,
+            CGRectMake(dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h)
+            );
 
-    @autoreleasepool {
-        NSBitmapImageRep *rep = [[[NSBitmapImageRep alloc] initWithBitmapDataPlanes: (uint8_t**)&_ctx.framebuffer 
-                                  pixelsWide: _ctx.framebuffer_width
-                                  pixelsHigh: _ctx.framebuffer_height
-                                  bitsPerSample: 8
-                                  samplesPerPixel: 4
-                                  hasAlpha: YES
-                                  isPlanar: NO
-                                  colorSpaceName: NSDeviceRGBColorSpace
-                                  bytesPerRow: (uint32_t)_ctx.framebuffer_width * sizeof(eva_pixel)
-                                  bitsPerPixel: sizeof(eva_pixel) * 8] autorelease];
+    // Draw
+    CGContextDrawImage(context, dirtyRect, subImage);
 
-        NSSize imageSize = NSMakeSize(_ctx.framebuffer_width, _ctx.framebuffer_height);
-        NSImage *image = [[[NSImage alloc] initWithSize: imageSize] autorelease];
-        [image addRepresentation: rep];
-        self.layer.contents = image;
-    }
+    // Once everything is written on screen we can release everything
+    CGImageRelease(subImage);
+    CGImageRelease(image);
+    CGColorSpaceRelease(colorSpace);
+    CGDataProviderRelease(provider);
 
-    printf("UpdateLayer NS %.2f\n", eva_time_since_ms(start));
+    printf("DrawRect %.2f\n", eva_time_since_ms(start));
 }
 - (void)viewDidChangeBackingProperties
 {
@@ -450,4 +477,19 @@ double eva_time_elapsed_ms(uint64_t start, uint64_t end)
 double eva_time_since_ms(uint64_t start)
 {
     return eva_time_elapsed_ms(start, eva_time_now());
+}
+
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+
+eva_rect eva_rect_union(eva_rect *a, eva_rect *b)
+{
+    eva_rect result;
+
+    result.x = min(a->x, b->x);
+    result.y = min(a->y, b->y);
+    result.w = max(a->x + a->w, b->x + b->w) - result.x;
+    result.h = max(a->y + a->h, b->y + b->h) - result.y;
+
+    return result;
 }
