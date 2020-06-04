@@ -24,7 +24,6 @@ typedef struct eva_ctx {
     bool        quit_ordered;
 
     eva_init_fn *   init_fn;
-    eva_frame_fn *  frame_fn;
     eva_event_fn *  event_fn;
     eva_cleanup_fn *cleanup_fn;
     eva_fail_fn *   fail_fn;
@@ -39,7 +38,6 @@ static eva_view *           _app_view;
 
 void eva_run(const char *    window_title,
              eva_init_fn *   init_fn,
-             eva_frame_fn *  frame_fn,
              eva_event_fn *  event_fn,
              eva_cleanup_fn *cleanup_fn,
              eva_fail_fn *   fail_fn)
@@ -49,7 +47,6 @@ void eva_run(const char *    window_title,
 
     _ctx.window_title = window_title;
     _ctx.init_fn      = init_fn;
-    _ctx.frame_fn     = frame_fn;
     _ctx.event_fn     = event_fn;
     _ctx.cleanup_fn   = cleanup_fn;
     _ctx.fail_fn      = fail_fn;
@@ -68,15 +65,15 @@ void eva_cancel_quit()
     _ctx.quit_ordered   = false;
 }
 
-void eva_request_frame()
+void eva_request_frame(eva_rect *dirty_rect)
 {
-    [_app_view setNeedsDisplay:YES];
-}
-
-void eva_request_frame_rect(eva_rect *dirty_rect)
-{
-    NSRect r = NSMakeRect(dirty_rect->x, dirty_rect->y, dirty_rect->w, dirty_rect->h);
-    [_app_view setNeedsDisplayInRect:r];
+    if (dirty_rect) {
+        NSRect r = NSMakeRect(dirty_rect->x, dirty_rect->y, dirty_rect->w, dirty_rect->h);
+        [_app_view setNeedsDisplayInRect:r];
+    }
+    else {
+        [_app_view setNeedsDisplay:YES];
+    }
 }
 
 int32_t eva_get_window_width()
@@ -296,6 +293,11 @@ static void eva_update_window(void)
 - (void)viewDidChangeBackingProperties
 {
     eva_update_window();
+
+    eva_event event = {
+        .type = EVA_EVENTTYPE_FULLFRAME,
+    };
+    _ctx.event_fn(&event);
 }
 - (BOOL)isOpaque
 {
