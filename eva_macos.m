@@ -236,7 +236,6 @@ static void eva_update_window(void)
 {
     uint64_t start = eva_time_now();
 
-    // Get current context
     CGContextRef context =
         (CGContextRef)[[NSGraphicsContext currentContext] CGContext];
 
@@ -246,19 +245,12 @@ static void eva_update_window(void)
         .w = (int32_t)(dirtyRect.size.width * _ctx.scale_x),
         .h = (int32_t)(dirtyRect.size.height * _ctx.scale_y),
     };
-    //_ctx.frame_fn(_ctx.framebuffer,
-    //              _ctx.framebuffer_width,
-    //              _ctx.framebuffer_height,
-    //              _ctx.scale_x,
-    //              _ctx.scale_y,
-    //              dirty_rect);
-    // Provider
+
     int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height *
                    (int32_t)sizeof(eva_pixel);
     CGDataProviderRef provider = CGDataProviderCreateWithData(
         nil, _ctx.framebuffer, (uint32_t)size, nil);
 
-    // CGImage
     CGImageRef image =
         CGImageCreate((size_t)_ctx.framebuffer_width,
                       (size_t)_ctx.framebuffer_height,
@@ -276,10 +268,8 @@ static void eva_update_window(void)
             CGRectMake(dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h)
     );
 
-    // Draw
     CGContextDrawImage(context, dirtyRect, subImage);
 
-    // Once everything is written on screen we can release everything
     CGImageRelease(subImage);
     CGImageRelease(image);
     CGDataProviderRelease(provider);
