@@ -113,3 +113,4 @@ double eva_time_elapsed_ms(uint64_t start, uint64_t end);
 double eva_time_since_ms(uint64_t start);
 
 eva_rect eva_rect_union(eva_rect *a, eva_rect *b);
+bool eva_rect_empty(eva_rect *a);

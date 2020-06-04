@@ -240,9 +240,6 @@ static void eva_update_window(void)
     CGContextRef context =
         (CGContextRef)[[NSGraphicsContext currentContext] CGContext];
 
-    // Colorspace RGB
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-
     eva_rect dirty_rect = {
         .x = (int32_t)(dirtyRect.origin.x * _ctx.scale_x),
         .y = (int32_t)(dirtyRect.origin.y * _ctx.scale_y),
@@ -268,7 +265,7 @@ static void eva_update_window(void)
                       8,
                       32,
                       sizeof(eva_pixel) * (size_t)_ctx.framebuffer_width,
-                      colorSpace,
+                      _app_window.screen.colorSpace.CGColorSpace,
                       kCGBitmapByteOrder32Big,
                       provider,
                       nil,                        // No decode
@@ -277,7 +274,7 @@ static void eva_update_window(void)
     CGImageRef subImage = CGImageCreateWithImageInRect(
             image,
             CGRectMake(dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h)
-            );
+    );
 
     // Draw
     CGContextDrawImage(context, dirtyRect, subImage);
@@ -285,7 +282,6 @@ static void eva_update_window(void)
     // Once everything is written on screen we can release everything
     CGImageRelease(subImage);
     CGImageRelease(image);
-    CGColorSpaceRelease(colorSpace);
     CGDataProviderRelease(provider);
 
     printf("DrawRect %.2f\n", eva_time_since_ms(start));
@@ -494,4 +490,12 @@ eva_rect eva_rect_union(eva_rect *a, eva_rect *b)
     result.h = max(a->y + a->h, b->y + b->h) - result.y;
 
     return result;
+}
+
+bool eva_rect_empty(eva_rect *a)
+{
+    return a->x == 0 &&
+           a->y == 0 &&
+           a->w == 0 &&
+           a->h == 0;
 }
