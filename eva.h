@@ -17,7 +17,7 @@ typedef enum eva_event_type {
     EVA_EVENTTYPE_WINDOW,
     EVA_EVENTTYPE_MOUSE,
     EVA_EVENTTYPE_KEYBOARD,
-    EVA_EVENTTYPE_FULLFRAME,
+    EVA_EVENTTYPE_REDRAWFRAME,
     EVA_EVENTTYPE_QUITREQUESTED,
 } eva_event_type;
 
@@ -25,21 +25,35 @@ typedef enum eva_mouse_event_type {
     EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED,
     EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
     EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
+    EVA_MOUSE_EVENTTYPE_MOUSE_ENTERED,
+    EVA_MOUSE_EVENTTYPE_MOUSE_EXITED,
 } eva_mouse_event_type;
 
 typedef struct eva_window_event {
-    int32_t window_width, window_height;
-    int32_t framebuffer_width, framebuffer_height;
-    float   scale_x, scale_y;
+    int32_t window_width;
+    int32_t window_height;
+
+    int32_t framebuffer_width;
+    int32_t framebuffer_height;
+
+    float scale_x;
+    float scale_y;
 } eva_window_event;
 
 typedef struct eva_mouse_event {
     eva_mouse_event_type type;
 
-    int32_t x, y;
-    bool    left_button_pressed, left_button_released;
-    bool    middle_button_pressed, middle_button_released;
-    bool    right_button_pressed, right_button_released;
+    int32_t mouse_x;
+    int32_t mouse_y;
+
+    bool left_button_pressed;
+    bool left_button_released;
+
+    bool middle_button_pressed;
+    bool middle_button_released;
+
+    bool right_button_pressed;
+    bool right_button_released;
 } eva_mouse_event;
 
 typedef struct eva_event {
@@ -69,13 +83,13 @@ typedef void(eva_fail_fn)(int32_t error_code, const char *error_string);
  * the eva framebuffer and then requesting a draw with
  * eva_request_frame(dirty_rect).
  */
-void eva_run(const char *    window_title,
-             eva_init_fn *   init_fn,
-             eva_event_fn *  event_fn,
+void eva_run(const char     *window_title,
+             eva_init_fn    *init_fn,
+             eva_event_fn   *event_fn,
              eva_cleanup_fn *cleanup_fn,
-             eva_fail_fn *   fail_fn);
+             eva_fail_fn    *fail_fn);
 /**
- * Use to cancel a pending quit on a EVA_EVENTTYPE_QUITREQUESTED.
+ * Use to cancel a pending quit on a EVA_EVENTTYPE_QUITREQUESTED event.
  */
 void eva_cancel_quit();
 
@@ -88,7 +102,7 @@ void eva_cancel_quit();
  * @param dirty_rect The portion of the frame the needs to be redrawn.
  *                   This can be set to NULL to force a full redraw.
  */
-void eva_request_frame(eva_rect *dirty_rect);
+void eva_request_frame(const eva_rect *dirty_rect);
 
 int32_t eva_get_window_width();
 int32_t eva_get_window_height();
@@ -108,9 +122,9 @@ void eva_time_init();
 uint64_t eva_time_now();
 uint64_t eva_time_since(uint64_t start);
 
-double eva_time_ms(uint64_t t);
-double eva_time_elapsed_ms(uint64_t start, uint64_t end);
-double eva_time_since_ms(uint64_t start);
+float eva_time_ms(uint64_t t);
+float eva_time_elapsed_ms(uint64_t start, uint64_t end);
+float eva_time_since_ms(uint64_t start);
 
-eva_rect eva_rect_union(eva_rect *a, eva_rect *b);
-bool eva_rect_empty(eva_rect *a);
+eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);
+bool eva_rect_empty(const eva_rect *a);

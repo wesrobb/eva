@@ -14,33 +14,35 @@
 - (void)drawRect:(NSRect)dirtyRect;
 @end
 
+void init_mouse_event(eva_event *e, eva_mouse_event_type type);
+
 typedef struct eva_ctx {
     int32_t     window_width, window_height;
     int32_t     framebuffer_width, framebuffer_height;
-    eva_pixel * framebuffer;
+    eva_pixel  *framebuffer;
     float       scale_x, scale_y; // framebuffer / window
     const char *window_title;
     bool        quit_requested;
     bool        quit_ordered;
 
-    eva_init_fn *   init_fn;
-    eva_event_fn *  event_fn;
+    eva_init_fn    *init_fn;
+    eva_event_fn   *event_fn;
     eva_cleanup_fn *cleanup_fn;
-    eva_fail_fn *   fail_fn;
+    eva_fail_fn    *fail_fn;
 } eva_ctx;
 
-// Global variables
-static eva_ctx              _ctx;
-static eva_app_delegate *   _app_delegate;
-static NSWindow *           _app_window;
-static eva_window_delegate *_app_window_delegate;
-static eva_view *           _app_view;
+static eva_ctx _ctx;
 
-void eva_run(const char *    window_title,
-             eva_init_fn *   init_fn,
-             eva_event_fn *  event_fn,
+static eva_app_delegate    *_app_delegate;
+static NSWindow            *_app_window;
+static eva_window_delegate *_app_window_delegate;
+static eva_view            *_app_view;
+
+void eva_run(const char     *window_title,
+             eva_init_fn    *init_fn,
+             eva_event_fn   *event_fn,
              eva_cleanup_fn *cleanup_fn,
-             eva_fail_fn *   fail_fn)
+             eva_fail_fn    *fail_fn)
 {
     // Usually time init would go first but macos's
     // timers require no initialization.
@@ -65,7 +67,7 @@ void eva_cancel_quit()
     _ctx.quit_ordered   = false;
 }
 
-void eva_request_frame(eva_rect *dirty_rect)
+void eva_request_frame(const eva_rect *dirty_rect)
 {
     if (dirty_rect) {
         NSRect r = NSMakeRect(dirty_rect->x, dirty_rect->y, dirty_rect->w, dirty_rect->h);
@@ -139,12 +141,16 @@ static void eva_update_window(void)
 {
     // Setup window
     const NSUInteger style =
-        NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-        NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+        NSWindowStyleMaskTitled |
+        NSWindowStyleMaskClosable |
+        NSWindowStyleMaskMiniaturizable |
+        NSWindowStyleMaskResizable;
 
     NSRect screen_rect = NSScreen.mainScreen.frame;
-    NSRect window_rect = NSMakeRect(
-        0, 0, screen_rect.size.width * 0.8, screen_rect.size.height * 0.8);
+    NSRect window_rect = NSMakeRect(0, 0,
+                                    screen_rect.size.width * 0.8,
+                                    screen_rect.size.height * 0.8);
+
     _app_window = [[NSWindow alloc] initWithContentRect:window_rect
                                               styleMask:style
                                                 backing:NSBackingStoreBuffered
@@ -163,7 +169,7 @@ static void eva_update_window(void)
 
     // Setup view
     _app_view = [[eva_view alloc] init];
-    _app_view.wantsLayer = NO;
+    _app_view.wantsLayer = YES;
     [_app_view updateTrackingAreas];
 
     // Assign view to window
@@ -234,22 +240,21 @@ static void eva_update_window(void)
 @implementation eva_view
 - (void)drawRect:(NSRect)dirtyRect
 {
-    uint64_t start = eva_time_now();
-
-    CGContextRef context =
-        (CGContextRef)[[NSGraphicsContext currentContext] CGContext];
+    CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
 
     eva_rect dirty_rect = {
-        .x = (int32_t)(dirtyRect.origin.x * _ctx.scale_x),
-        .y = (int32_t)(dirtyRect.origin.y * _ctx.scale_y),
-        .w = (int32_t)(dirtyRect.size.width * _ctx.scale_x),
+        .x = (int32_t)(dirtyRect.origin.x    * _ctx.scale_x),
+        .y = (int32_t)(dirtyRect.origin.y    * _ctx.scale_y),
+        .w = (int32_t)(dirtyRect.size.width  * _ctx.scale_x),
         .h = (int32_t)(dirtyRect.size.height * _ctx.scale_y),
     };
 
-    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height *
+    int32_t size = _ctx.framebuffer_width * 
+                   _ctx.framebuffer_height *
                    (int32_t)sizeof(eva_pixel);
     CGDataProviderRef provider = CGDataProviderCreateWithData(
-        nil, _ctx.framebuffer, (uint32_t)size, nil);
+        nil, _ctx.framebuffer, (uint32_t)size, nil
+    );
 
     CGImageRef image =
         CGImageCreate((size_t)_ctx.framebuffer_width,
@@ -263,25 +268,25 @@ static void eva_update_window(void)
                       nil,                        // No decode
                       NO,                         // No interpolation
                       kCGRenderingIntentDefault); // Default rendering
-    CGImageRef subImage = CGImageCreateWithImageInRect(
-            image,
-            CGRectMake(dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h)
-    );
+
+    CGRect cg_rect = CGRectMake(dirty_rect.x,
+                                dirty_rect.y,
+                                dirty_rect.w,
+                                dirty_rect.h);
+    CGImageRef subImage = CGImageCreateWithImageInRect(image, cg_rect);
 
     CGContextDrawImage(context, dirtyRect, subImage);
 
     CGImageRelease(subImage);
     CGImageRelease(image);
     CGDataProviderRelease(provider);
-
-    printf("DrawRect %.2f\n", eva_time_since_ms(start));
 }
 - (void)viewDidChangeBackingProperties
 {
     eva_update_window();
 
     eva_event event = {
-        .type = EVA_EVENTTYPE_FULLFRAME,
+        .type = EVA_EVENTTYPE_REDRAWFRAME,
     };
     _ctx.event_fn(&event);
 }
@@ -304,9 +309,13 @@ static void eva_update_window(void)
         trackingArea = nil;
     }
     const NSTrackingAreaOptions options =
-        NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow |
-        NSTrackingEnabledDuringMouseDrag | NSTrackingCursorUpdate |
-        NSTrackingInVisibleRect | NSTrackingAssumeInside;
+        NSTrackingMouseEnteredAndExited  |
+        NSTrackingActiveInKeyWindow      |
+        NSTrackingEnabledDuringMouseDrag |
+        NSTrackingCursorUpdate           |
+        NSTrackingInVisibleRect          |
+        NSTrackingAssumeInside;
+
     trackingArea = [[NSTrackingArea alloc] initWithRect:[self bounds]
                                                 options:options
                                                   owner:self
@@ -316,104 +325,74 @@ static void eva_update_window(void)
 }
 - (void)mouseEntered:(NSEvent *)event
 {
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_ENTERED);
+    _ctx.event_fn(&e);
 }
 - (void)mouseExited:(NSEvent *)event
 {
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_EXITED);
+    _ctx.event_fn(&e);
 }
 - (void)mouseDown:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y,
-                    .mouse.left_button_pressed = true };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
+    e.mouse.left_button_pressed = true;
     _ctx.event_fn(&e);
 }
 - (void)mouseUp:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y,
-                    .mouse.left_button_released = true };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
+    e.mouse.left_button_released = true;
     _ctx.event_fn(&e);
 }
 - (void)rightMouseDown:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y,
-                    .mouse.right_button_pressed = true };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
+    e.mouse.right_button_pressed = true;
     _ctx.event_fn(&e);
 }
 - (void)rightMouseUp:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y,
-                    .mouse.right_button_released = true };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
+    e.mouse.right_button_released = true;
     _ctx.event_fn(&e);
 }
 - (void)otherMouseDown:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y,
-                    .mouse.middle_button_pressed = true };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
+    e.mouse.middle_button_pressed = true;
     _ctx.event_fn(&e);
 }
 - (void)otherMouseUp:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y,
-                    .mouse.middle_button_released = true };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
+    e.mouse.middle_button_released = true;
     _ctx.event_fn(&e);
 }
 - (void)mouseMoved:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_MOVED);
     _ctx.event_fn(&e);
 }
 - (void)mouseDragged:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_MOVED);
     _ctx.event_fn(&e);
 }
 - (void)rightMouseDragged:(NSEvent *)event
 {
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    eva_event e = { .type       = EVA_EVENTTYPE_MOUSE,
-                    .mouse.type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
-                    .mouse.x    = (int32_t)mouse_position.x,
-                    .mouse.y    = (int32_t)mouse_position.y };
+    eva_event e;
+    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_MOVED);
     _ctx.event_fn(&e);
 }
 - (void)scrollWheel:(NSEvent *)event
@@ -452,40 +431,53 @@ uint64_t eva_time_since(uint64_t start)
     return eva_time_now() - start;
 }
 
-double eva_time_ms(uint64_t t)
+float eva_time_ms(uint64_t t)
 {
     return t / 1000000.0f;
 }
 
-double eva_time_elapsed_ms(uint64_t start, uint64_t end)
+float eva_time_elapsed_ms(uint64_t start, uint64_t end)
 {
     return eva_time_ms(end - start);
 }
 
-double eva_time_since_ms(uint64_t start)
+float eva_time_since_ms(uint64_t start)
 {
     return eva_time_elapsed_ms(start, eva_time_now());
 }
 
-#define min(a, b) (((a) < (b)) ? (a) : (b))
-#define max(a, b) (((a) > (b)) ? (a) : (b))
+#define eva_min(a, b) (((a) < (b)) ? (a) : (b))
+#define eva_max(a, b) (((a) > (b)) ? (a) : (b))
 
-eva_rect eva_rect_union(eva_rect *a, eva_rect *b)
+eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b)
 {
     eva_rect result;
 
-    result.x = min(a->x, b->x);
-    result.y = min(a->y, b->y);
-    result.w = max(a->x + a->w, b->x + b->w) - result.x;
-    result.h = max(a->y + a->h, b->y + b->h) - result.y;
+    result.x = eva_min(a->x, b->x);
+    result.y = eva_min(a->y, b->y);
+    result.w = eva_max(a->x + a->w, b->x + b->w) - result.x;
+    result.h = eva_max(a->y + a->h, b->y + b->h) - result.y;
 
     return result;
 }
+#undef eva_min
+#undef eva_max
 
-bool eva_rect_empty(eva_rect *a)
+bool eva_rect_empty(const eva_rect *a)
 {
     return a->x == 0 &&
            a->y == 0 &&
            a->w == 0 &&
            a->h == 0;
+}
+
+void init_mouse_event(eva_event *e, eva_mouse_event_type type)
+{
+    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
+
+    memset(e, 0, sizeof(*e));
+    e->type          = EVA_EVENTTYPE_MOUSE;
+    e->mouse.type    = type;
+    e->mouse.mouse_x = (int32_t)mouse_position.x;
+    e->mouse.mouse_y = (int32_t)mouse_position.y;
 }
