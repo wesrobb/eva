@@ -189,7 +189,7 @@ static void eva_update_window(void)
 @implementation eva_window_delegate
 - (BOOL)windowShouldClose:(id)sender
 {
-    // only give user-code a chance to intervene when sapp_quit() wasn't already
+    // only give user-code a chance to intervene when eva_quit() wasn't already
     // called
     if (!_ctx.quit_ordered) {
         // if window should be closed and event handling is enabled, give user
@@ -198,7 +198,7 @@ static void eva_update_window(void)
 
         eva_event quit_event = { .type = EVA_EVENTTYPE_QUITREQUESTED };
         _ctx.event_fn(&quit_event);
-        /* user code hasn't intervened, quit the app */
+        // user code hasn't intervened, quit the app
         if (_ctx.quit_requested) {
             _ctx.quit_ordered = true;
         }

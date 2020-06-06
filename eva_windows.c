@@ -2,6 +2,14 @@
 
 #include <Windows.h>
 
+#include <assert.h>
+
+#pragma comment(lib, "User32.lib")
+
+static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes);
+static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes);
+LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
 typedef struct eva_ctx {
     int32_t     window_width, window_height;
     int32_t     framebuffer_width, framebuffer_height;
@@ -32,6 +40,75 @@ void eva_run(const char     *window_title,
     _ctx.event_fn     = event_fn;
     _ctx.cleanup_fn   = cleanup_fn;
     _ctx.fail_fn      = fail_fn;
+
+   if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+       // TODO: Comment make a common set of error codes.
+       _ctx.fail_fn(GetLastError(), "Failed to set DPI");
+   }
+
+    WNDCLASSW wndclassw;
+    memset(&wndclassw, 0, sizeof(wndclassw));
+    wndclassw.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+    wndclassw.lpfnWndProc = (WNDPROC) wnd_proc;
+    wndclassw.hInstance = GetModuleHandleW(NULL);
+    wndclassw.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wndclassw.hIcon = LoadIcon(NULL, IDI_WINLOGO);
+    wndclassw.lpszClassName = L"eva";
+    RegisterClassW(&wndclassw);
+
+    DWORD style = WS_CLIPSIBLINGS | 
+                  WS_CLIPCHILDREN |
+                  WS_CAPTION      |
+                  WS_SYSMENU      |
+                  WS_MINIMIZEBOX  |
+                  WS_MAXIMIZEBOX  |
+                  WS_SIZEBOX;
+    DWORD ex_style = WS_EX_APPWINDOW |
+                     WS_EX_WINDOWEDGE;
+
+    
+    HWND hwnd = CreateWindowExW(ex_style,      
+                                L"eva", 
+                                L"WindowTitle",
+                                style,         
+                                CW_USEDEFAULT, 
+                                CW_USEDEFAULT, 
+                                CW_USEDEFAULT,
+                                CW_USEDEFAULT,
+                                NULL,
+                                NULL,
+                                GetModuleHandleW(NULL),
+                                NULL);
+    ShowWindow(hwnd, SW_SHOW);
+
+    bool done = false;
+    while (!(done || _ctx.quit_ordered)) {
+        MSG msg;
+        while (GetMessageW(&msg, NULL, 0, 0)) {
+            if (WM_QUIT == msg.message) {
+                done = true;
+                continue;
+            }
+            else {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+        }
+        /* check for window resized, this cannot happen in WM_SIZE as it explodes memory usage */
+       // if (_sapp_win32_update_dimensions()) {
+       //     #if defined(SOKOL_D3D11)
+       //     _sapp_d3d11_resize_default_render_target();
+       //     #endif
+       //     _sapp_win32_app_event(SAPP_EVENTTYPE_RESIZED);
+       // }
+        if (_ctx.quit_requested) {
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+        }
+    }
+    _ctx.cleanup_fn();
+
+    DestroyWindow(hwnd);
+    UnregisterClassW(L"eva", GetModuleHandleW(NULL));
 }
 
 void eva_cancel_quit()
@@ -137,4 +214,68 @@ bool eva_rect_empty(const eva_rect *a)
            a->y == 0 &&
            a->w == 0 &&
            a->h == 0;
+}
+
+static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes)
+{
+    assert(src && dst && (dst_num_bytes > 1));
+    memset(dst, 0, dst_num_bytes);
+
+    int dst_chars = dst_num_bytes / sizeof(wchar_t);
+    int dst_needed = MultiByteToWideChar(CP_UTF8, 0, src, -1, 0, 0);
+    if ((dst_needed > 0) && (dst_needed < dst_chars)) {
+        MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dst_chars);
+        return true;
+    }
+
+    return false;
+}
+
+static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes)
+{
+    assert(src && dst && (dst_num_bytes > 1));
+    memset(dst, 0, dst_num_bytes);
+
+    int32_t size = WideCharToMultiByte(
+            CP_UTF8,      // Going from UTF16 -> UTF8
+            0,            // dwFlags must be 0 when using CP_UTF8
+            src,          // UTF16 input data
+            -1,           // Input len. -1 = use null terminator for len
+            dst,          // Output buffer
+            dst_num_bytes,// Output buffer capacity 
+            NULL, NULL);  // Always NULL for CP_UTF8
+
+    return size != 0;
+}
+
+LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    switch (uMsg) {
+        case WM_CLOSE:
+            // only give user-code a chance to intervene when eva_quit() wasn't already
+            // called
+            if (!_ctx.quit_ordered) {
+                // if window should be closed and event handling is enabled, give user
+                // code a chance to intervene via eva_cancel_quit()
+                _ctx.quit_requested = true;
+
+                eva_event quit_event = { 
+                    .type = EVA_EVENTTYPE_QUITREQUESTED
+                };
+                _ctx.event_fn(&quit_event);
+                // user code hasn't intervened, quit the app
+                if (_ctx.quit_requested) {
+                    _ctx.quit_ordered = true;
+                }
+            }
+            if (_ctx.quit_ordered) {
+                PostQuitMessage(0);
+            }
+            return 0;
+        default:
+            break;
+            
+    };
+
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
