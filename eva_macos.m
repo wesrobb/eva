@@ -1,8 +1,9 @@
-#import <Cocoa/Cocoa.h>
+#include "eva.h"
 
 #include <stdbool.h>
 
-#include "eva.h"
+#import <Cocoa/Cocoa.h>
+
 
 @interface eva_app_delegate : NSObject <NSApplicationDelegate>
 @end
