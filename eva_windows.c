@@ -139,26 +139,26 @@ void eva_request_frame(const eva_rect* dirty_rect)
 {
     if (dirty_rect) {
         if (eva_rect_empty(dirty_rect)) {
-            return;
+            printf("requested rect is x=%d, y=%d, w=%d, h=%d\n", 
+                    dirty_rect->x,
+                    dirty_rect->y,
+                    dirty_rect->w,
+                    dirty_rect->h);
+
+
+            RECT r = {
+                .left = dirty_rect->x,
+                .top  = dirty_rect->y,
+                .right = dirty_rect->x + dirty_rect->w,
+                .bottom = dirty_rect->y + dirty_rect->h,
+            };
+            InvalidateRect(_ctx.hwnd, &r, FALSE);
+            UpdateWindow(_ctx.hwnd); // Force WM_PAINT immediately
         }
-
-        printf("requested rect is x=%d, y=%d, w=%d, h=%d\n", 
-                dirty_rect->x,
-                dirty_rect->y,
-                dirty_rect->w,
-                dirty_rect->h);
-
-
-        RECT r = {
-            .left = dirty_rect->x,
-            .top  = dirty_rect->y,
-            .right = dirty_rect->x + dirty_rect->w,
-            .bottom = dirty_rect->y + dirty_rect->h,
-        };
-        InvalidateRect(_ctx.hwnd, &r, FALSE);
     }
     else {
         InvalidateRect(_ctx.hwnd, NULL, FALSE);
+        UpdateWindow(_ctx.hwnd); // Force WM_PAINT immediately
     }
 }
 
