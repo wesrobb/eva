@@ -71,10 +71,20 @@ void eva_cancel_quit()
 void eva_request_frame(const eva_rect *dirty_rect)
 {
     if (dirty_rect) {
-        NSRect r = NSMakeRect(dirty_rect->x, dirty_rect->y, dirty_rect->w, dirty_rect->h);
-        [_app_view setNeedsDisplayInRect:r];
+        if (!eva_rect_empty(dirty_rect)) {
+
+            printf("request_frame x=%d, y=%d, w=%d, h=%d\n",
+                   dirty_rect->x,
+                   dirty_rect->y,
+                   dirty_rect->w,
+                   dirty_rect->h);
+            NSRect r = NSMakeRect(dirty_rect->x, dirty_rect->y,
+                                  dirty_rect->w, dirty_rect->h);
+            [_app_view setNeedsDisplayInRect:r];
+        }
     }
     else {
+        puts("request_full_frame");
         [_app_view setNeedsDisplay:YES];
     }
 }
@@ -248,6 +258,12 @@ static void update_window(void)
         .h = (int32_t)(dirtyRect.size.height * _ctx.scale_y),
     };
 
+    printf("drawRect x=%d, y=%d, w=%d, h=%d\n",
+           dirty_rect.x,
+           dirty_rect.y,
+           dirty_rect.w,
+           dirty_rect.h);
+
     int32_t size = _ctx.framebuffer_width * 
                    _ctx.framebuffer_height *
                    (int32_t)sizeof(eva_pixel);
@@ -399,6 +415,15 @@ static void update_window(void)
 }
 - (void)keyDown:(NSEvent *)event
 {
+    NSString *characters = event.charactersIgnoringModifiers;
+
+    eva_event e = {
+        .type = EVA_EVENTTYPE_KB,
+        .kb.type = EVA_KB_EVENTTYPE_KEYDOWN,
+        .kb.utf8_codepoint = characters.UTF8String,
+    };
+
+    _ctx.event_fn(&e);
 }
 - (void)keyUp:(NSEvent *)event
 {

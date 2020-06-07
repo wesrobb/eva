@@ -16,7 +16,7 @@
 typedef enum eva_event_type {
     EVA_EVENTTYPE_WINDOW,
     EVA_EVENTTYPE_MOUSE,
-    EVA_EVENTTYPE_KEYBOARD,
+    EVA_EVENTTYPE_KB,
     EVA_EVENTTYPE_REDRAWFRAME,
     EVA_EVENTTYPE_QUITREQUESTED,
 } eva_event_type;
@@ -28,6 +28,10 @@ typedef enum eva_mouse_event_type {
     EVA_MOUSE_EVENTTYPE_MOUSE_ENTERED,
     EVA_MOUSE_EVENTTYPE_MOUSE_EXITED,
 } eva_mouse_event_type;
+
+typedef enum eva_kb_event_type {
+    EVA_KB_EVENTTYPE_KEYDOWN,
+} eva_kb_event_type;
 
 typedef struct eva_window_event {
     int32_t window_width;
@@ -56,11 +60,26 @@ typedef struct eva_mouse_event {
     bool right_btn_released;
 } eva_mouse_event;
 
+typedef struct eva_kb_event {
+    eva_kb_event_type type;
+
+    /**
+     * Null-terminated array of UTF-8 encoded
+     * characters. 
+     *
+     * A single character is not sufficient since
+     * utf8 codepoints > 128 are larger than a
+     * single byte.
+     */
+    const char* utf8_codepoint;
+} eva_kb_event;
+
 typedef struct eva_event {
     eva_event_type type;
     union {
         eva_mouse_event  mouse;
         eva_window_event window;
+        eva_kb_event     kb;
     };
 } eva_event;
 
