@@ -46,14 +46,14 @@ typedef struct eva_mouse_event {
     int32_t mouse_x;
     int32_t mouse_y;
 
-    bool left_button_pressed;
-    bool left_button_released;
+    bool left_btn_pressed;
+    bool left_btn_released;
 
-    bool middle_button_pressed;
-    bool middle_button_released;
+    bool middle_btn_pressed;
+    bool middle_btn_released;
 
-    bool right_button_pressed;
-    bool right_button_released;
+    bool right_btn_pressed;
+    bool right_btn_released;
 } eva_mouse_event;
 
 typedef struct eva_event {

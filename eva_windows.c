@@ -11,6 +11,13 @@ static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes);
 static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes);
 static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 static void update_window();
+static void handle_paint();
+static void handle_close();
+static void handle_resize();
+static void handle_mouse_event(int32_t mouse_x, int32_t mouse_y,
+                               bool left_btn_pressed, bool left_btn_released,
+                               bool right_btn_pressed, bool right_btn_released,
+                               bool middle_btn_pressed, bool middle_btn_released);
 
 typedef struct eva_ctx {
     int32_t     window_width, window_height;
@@ -29,6 +36,7 @@ typedef struct eva_ctx {
     LARGE_INTEGER ticks_per_sec;
     HWND hwnd;
     bool window_shown;
+    bool resizing;
 } eva_ctx;
 
 static eva_ctx _ctx;
@@ -39,6 +47,8 @@ void eva_run(const char     *window_title,
              eva_cleanup_fn *cleanup_fn,
              eva_fail_fn    *fail_fn)
 {
+    eva_time_init();
+
     _ctx.window_title = window_title;
     _ctx.init_fn      = init_fn;
     _ctx.event_fn     = event_fn;
@@ -99,21 +109,16 @@ void eva_run(const char     *window_title,
     bool done = false;
     while (!(done || _ctx.quit_ordered)) {
         MSG msg;
-        while (GetMessageW(&msg, NULL, 0, 0)) {
-            if (WM_QUIT == msg.message) {
-                done = true;
-                continue;
-            }
-            else {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
+        GetMessageW(&msg, NULL, 0, 0);
+
+        if (WM_QUIT == msg.message) {
+            done = true;
+            continue;
         }
-        // Check for window resized.
-        // This cannot happen in WM_SIZE as it explodes memory usage.
-       // if (update_window()) {
-       //     //_sapp_win32_app_event(SAPP_EVENTTYPE_RESIZED);
-       // }
+
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+
         if (_ctx.quit_requested) {
             PostMessage(_ctx.hwnd, WM_CLOSE, 0, 0);
         }
@@ -132,7 +137,29 @@ void eva_cancel_quit()
 
 void eva_request_frame(const eva_rect* dirty_rect)
 {
-    (void)dirty_rect;
+    if (dirty_rect) {
+        if (eva_rect_empty(dirty_rect)) {
+            return;
+        }
+
+        printf("requested rect is x=%d, y=%d, w=%d, h=%d\n", 
+                dirty_rect->x,
+                dirty_rect->y,
+                dirty_rect->w,
+                dirty_rect->h);
+
+
+        RECT r = {
+            .left = dirty_rect->x,
+            .top  = dirty_rect->y,
+            .right = dirty_rect->x + dirty_rect->w,
+            .bottom = dirty_rect->y + dirty_rect->h,
+        };
+        InvalidateRect(_ctx.hwnd, &r, FALSE);
+    }
+    else {
+        InvalidateRect(_ctx.hwnd, NULL, FALSE);
+    }
 }
 
 int32_t eva_get_window_width()
@@ -189,18 +216,22 @@ uint64_t eva_time_since(uint64_t start)
 
 float eva_time_ms(uint64_t t)
 {
-    float ms = t * 1000.0f;
-    return ms / _ctx.ticks_per_sec.QuadPart;
+    float ticks1000 = t * 1000.0f;
+    float ms = ticks1000 / _ctx.ticks_per_sec.QuadPart;
+    return ms;
 }
 
 float eva_time_elapsed_ms(uint64_t start, uint64_t end)
 {
-    return eva_time_ms(end - start);
+    float ms = eva_time_ms(end - start);
+    return ms;
 }
 
 float eva_time_since_ms(uint64_t start)
 {
-    return eva_time_elapsed_ms(start, eva_time_now());
+    uint64_t now = eva_time_now();
+    float ms = eva_time_elapsed_ms(start, now);
+    return ms;
 }
 
 #define eva_min(a, b) (((a) < (b)) ? (a) : (b))
@@ -266,74 +297,82 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
     {
         switch (uMsg) {
             case WM_CLOSE:
-                // only give user-code a chance to intervene when eva_quit() wasn't already
-                // called
-                if (!_ctx.quit_ordered) {
-                    // if window should be closed and event handling is enabled, give user
-                    // code a chance to intervene via eva_cancel_quit()
-                    _ctx.quit_requested = true;
-
-                    eva_event quit_event = { 
-                        .type = EVA_EVENTTYPE_QUITREQUESTED
-                    };
-                    _ctx.event_fn(&quit_event);
-                    // user code hasn't intervened, quit the app
-                    if (_ctx.quit_requested) {
-                        _ctx.quit_ordered = true;
-                    }
-                }
-                if (_ctx.quit_ordered) {
-                    PostQuitMessage(0);
-                }
+                handle_close();
                 return 0;
-            case WM_DPICHANGED: // Does this have the same issue as WM_SIZE?
+            case WM_DPICHANGED:
                 puts("WM_DPICHANGED");
                 update_window();
                 // Redraw?
                 break;
             case WM_PAINT:
+                handle_paint();
+                break;
+            case WM_SIZE:
+                handle_resize();
+                break;
+            case WM_MOUSEMOVE:
                 {
-                    RECT draw_rect;
-                    if (GetUpdateRect(_ctx.hwnd, &draw_rect, FALSE)) {
-                        puts("WM_PAINT");
-
-
-                        BITMAPINFO bmi = {0};
-                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-                        bmi.bmiHeader.biWidth = _ctx.framebuffer_width;
-                        bmi.bmiHeader.biHeight = -_ctx.framebuffer_height;
-                        bmi.bmiHeader.biPlanes = 1;
-                        bmi.bmiHeader.biBitCount = 32;
-                        bmi.bmiHeader.biCompression = BI_RGB;
-
-                        // Get a paint DC for current window.
-                        // Paint DC contains the right scaling to match
-                        // the monitor DPI where the window is located.
-                        PAINTSTRUCT ps;
-                        HDC hdc = BeginPaint(_ctx.hwnd, &ps);
-
-                        // Draw into the region defined by draw rect.
-                        // This region should always map 1-to-1 with the 
-                        // region in the framebuffer
-                        SetDIBitsToDevice(
-                               hdc,
-                               draw_rect.left,                   // x dest
-                               draw_rect.top,                    // y dest
-                               draw_rect.right - draw_rect.left, // width
-                               draw_rect.bottom - draw_rect.top, // height
-                               draw_rect.left,                   // x src
-                               draw_rect.top,                    // y src
-                               0,                                // scanline 0
-                               draw_rect.bottom - draw_rect.top, // n scanlines
-                               _ctx.framebuffer,                 // buffer
-                               &bmi,                             // buffer info
-                               DIB_RGB_COLORS                    // raw colors
-                               );
-
-                        EndPaint(_ctx.hwnd, &ps);
-                    }
-                    break;
+                    POINTS mouse_pos = MAKEPOINTS(lParam);
+                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
+                                       false, false,
+                                       false, false,
+                                       false, false);
                 }
+                break;
+            case WM_LBUTTONDOWN:
+                {
+                    POINTS mouse_pos = MAKEPOINTS(lParam);
+                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
+                                       true,  false,
+                                       false, false,
+                                       false, false);
+                }
+                break;
+            case WM_LBUTTONUP:
+                {
+                    POINTS mouse_pos = MAKEPOINTS(lParam);
+                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
+                                       false, true,
+                                       false, false,
+                                       false, false);
+                }
+                break;
+            case WM_RBUTTONDOWN:
+                {
+                    POINTS mouse_pos = MAKEPOINTS(lParam);
+                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
+                                       false, false,
+                                       true,  false,
+                                       false, false);
+                }
+                break;
+            case WM_RBUTTONUP:
+                {
+                    POINTS mouse_pos = MAKEPOINTS(lParam);
+                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
+                                       false, false,
+                                       false, true,
+                                       false, false);
+                }
+                break;
+            case WM_MBUTTONDOWN:
+                {
+                    POINTS mouse_pos = MAKEPOINTS(lParam);
+                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
+                                       false, false,
+                                       false, false,
+                                       true,  false);
+                }
+                break;
+            case WM_MBUTTONUP:
+                {
+                    POINTS mouse_pos = MAKEPOINTS(lParam);
+                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
+                                       false, false,
+                                       false, false,
+                                       false, true);
+                }
+                break;
             default:
                 break;
 
@@ -366,4 +405,118 @@ static void update_window()
 
     int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
     _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
+
+    printf("window %d x %d\n", _ctx.window_width, _ctx.window_height);
+    printf("framebuffer %d x %d\n", _ctx.framebuffer_width, _ctx.framebuffer_height);
+    printf("scale %.1f x %.1f\n", _ctx.scale_x, _ctx.scale_y);
+}
+
+static void handle_paint()
+{
+    uint64_t start = eva_time_now();
+
+    RECT draw_rect;
+    if (GetUpdateRect(_ctx.hwnd, &draw_rect, FALSE)) {
+        BITMAPINFO bmi = {0};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = _ctx.framebuffer_width;
+        bmi.bmiHeader.biHeight = -_ctx.framebuffer_height;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        // Get a paint DC for current window.
+        // Paint DC contains the right scaling to match
+        // the monitor DPI where the window is located.
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(_ctx.hwnd, &ps);
+
+        // Draw into the region defined by draw rect.
+        // This region should always map 1-to-1 with the 
+        // region in the framebuffer
+        SetDIBitsToDevice(
+                hdc,
+                draw_rect.left,                   // x dest
+                draw_rect.top,                    // y dest
+                draw_rect.right - draw_rect.left, // width
+                draw_rect.bottom - draw_rect.top, // height
+                draw_rect.left,                   // x src
+                draw_rect.top,                    // y src
+                0,                                // scanline 0
+                draw_rect.bottom - draw_rect.top, // n scanlines
+                _ctx.framebuffer,                 // buffer
+                &bmi,                             // buffer info
+                DIB_RGB_COLORS                    // raw colors
+                );
+
+        EndPaint(_ctx.hwnd, &ps);
+    }
+
+    printf("handle_paint - %.1f ms\n", eva_time_since_ms(start));
+}
+
+static void handle_close()
+{
+    // only give user-code a chance to intervene when eva_quit() wasn't already
+    // called
+    if (!_ctx.quit_ordered) {
+        // if window should be closed and event handling is enabled, give user
+        // code a chance to intervene via eva_cancel_quit()
+        _ctx.quit_requested = true;
+
+        eva_event quit_event = { 
+            .type = EVA_EVENTTYPE_QUITREQUESTED
+        };
+        _ctx.event_fn(&quit_event);
+        // user code hasn't intervened, quit the app
+        if (_ctx.quit_requested) {
+            _ctx.quit_ordered = true;
+        }
+    }
+    if (_ctx.quit_ordered) {
+        PostQuitMessage(0);
+    }
+}
+
+static void handle_resize()
+{
+    update_window();
+    eva_event event = {
+        .type = EVA_EVENTTYPE_WINDOW,
+        .window.window_width = _ctx.window_width,
+        .window.window_height = _ctx.window_height,
+        .window.framebuffer_width = _ctx.framebuffer_width,
+        .window.framebuffer_height = _ctx.framebuffer_height,
+        .window.scale_x = _ctx.scale_x,
+        .window.scale_y = _ctx.scale_y,
+    };
+    _ctx.event_fn(&event);
+}
+
+static void handle_mouse_event(int32_t mouse_x, int32_t mouse_y,
+                               bool left_btn_pressed, bool left_btn_released,
+                               bool right_btn_pressed, bool right_btn_released,
+                               bool middle_btn_pressed, bool middle_btn_released)
+{
+    eva_mouse_event_type type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED;
+    if (left_btn_pressed || right_btn_pressed || middle_btn_pressed) {
+        type = EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED;
+    }
+    else if (left_btn_released || right_btn_released || middle_btn_released) {
+        type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED;
+    }
+
+    eva_event e = {
+        .type = EVA_EVENTTYPE_MOUSE,
+        .mouse.type = type,
+        .mouse.mouse_x = mouse_x,
+        .mouse.mouse_y = mouse_y,
+        .mouse.left_btn_pressed    = left_btn_pressed,
+        .mouse.left_btn_released   = left_btn_released,
+        .mouse.right_btn_pressed   = right_btn_pressed,
+        .mouse.right_btn_released  = right_btn_released,
+        .mouse.middle_btn_pressed  = middle_btn_pressed,
+        .mouse.middle_btn_released = middle_btn_released,
+    };
+    _ctx.event_fn(&e);
 }
