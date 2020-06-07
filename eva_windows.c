@@ -66,10 +66,12 @@ void eva_run(const char     *window_title,
     DWORD ex_style = WS_EX_APPWINDOW |
                      WS_EX_WINDOWEDGE;
 
+    wchar_t window_title_utf16[256];
+    utf8_to_utf16(window_title, window_title_utf16, 256);
     
     HWND hwnd = CreateWindowExW(ex_style,      
                                 L"eva", 
-                                L"WindowTitle",
+                                window_title_utf16,
                                 style,         
                                 CW_USEDEFAULT, 
                                 CW_USEDEFAULT, 
