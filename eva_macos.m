@@ -117,13 +117,13 @@ float eva_get_framebuffer_scale_y()
 static void update_window(void)
 {
     NSRect content_bounds  = _app_window.contentView.bounds;
-    NSRect backing_bounds = [_app_window convertRectToBacking:window_bounds];
+    NSRect backing_bounds = [_app_window convertRectToBacking:content_bounds];
 
-    _ctx.window_width  = (int32_t)window_bounds.size.width;
-    _ctx.window_height = (int32_t)window_bounds.size.height;
+    _ctx.window_width  = (int32_t)content_bounds.size.width;
+    _ctx.window_height = (int32_t)content_bounds.size.height;
 
-    _ctx.scale_x = (float)backing_bounds.size.width / content_bounds.size.width;
-    _ctx.scale_y = (float)backing_bounds.size.height / content_bounds.size.height;
+    _ctx.scale_x = (float)(backing_bounds.size.width / content_bounds.size.width);
+    _ctx.scale_y = (float)(backing_bounds.size.height / content_bounds.size.height);
 
     _ctx.framebuffer_width  = (int32_t)(_ctx.window_width * _ctx.scale_x);
     _ctx.framebuffer_height = (int32_t)(_ctx.window_height * _ctx.scale_y);
@@ -338,42 +338,42 @@ static void update_window(void)
 {
     eva_event e;
     init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
-    e.mouse.left_button_pressed = true;
+    e.mouse.left_btn_pressed = true;
     _ctx.event_fn(&e);
 }
 - (void)mouseUp:(NSEvent *)event
 {
     eva_event e;
     init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
-    e.mouse.left_button_released = true;
+    e.mouse.left_btn_released = true;
     _ctx.event_fn(&e);
 }
 - (void)rightMouseDown:(NSEvent *)event
 {
     eva_event e;
     init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
-    e.mouse.right_button_pressed = true;
+    e.mouse.right_btn_pressed = true;
     _ctx.event_fn(&e);
 }
 - (void)rightMouseUp:(NSEvent *)event
 {
     eva_event e;
     init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
-    e.mouse.right_button_released = true;
+    e.mouse.right_btn_released = true;
     _ctx.event_fn(&e);
 }
 - (void)otherMouseDown:(NSEvent *)event
 {
     eva_event e;
     init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
-    e.mouse.middle_button_pressed = true;
+    e.mouse.middle_btn_pressed = true;
     _ctx.event_fn(&e);
 }
 - (void)otherMouseUp:(NSEvent *)event
 {
     eva_event e;
     init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
-    e.mouse.middle_button_released = true;
+    e.mouse.middle_btn_released = true;
     _ctx.event_fn(&e);
 }
 - (void)mouseMoved:(NSEvent *)event
