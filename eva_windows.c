@@ -3,12 +3,14 @@
 #include <Windows.h>
 
 #include <assert.h>
+#include <stdio.h>
 
 #pragma comment(lib, "User32.lib")
 
 static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes);
 static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes);
-LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+static void update_window();
 
 typedef struct eva_ctx {
     int32_t     window_width, window_height;
@@ -19,12 +21,14 @@ typedef struct eva_ctx {
     bool        quit_requested;
     bool        quit_ordered;
 
-    LARGE_INTEGER ticks_per_sec;
-
     eva_init_fn    *init_fn;
     eva_event_fn   *event_fn;
     eva_cleanup_fn *cleanup_fn;
     eva_fail_fn    *fail_fn;
+
+    LARGE_INTEGER ticks_per_sec;
+    HWND hwnd;
+    bool window_shown;
 } eva_ctx;
 
 static eva_ctx _ctx;
@@ -69,7 +73,7 @@ void eva_run(const char     *window_title,
     wchar_t window_title_utf16[256];
     utf8_to_utf16(window_title, window_title_utf16, 256);
     
-    HWND hwnd = CreateWindowExW(ex_style,      
+    _ctx.hwnd = CreateWindowExW(ex_style,      
                                 L"eva", 
                                 window_title_utf16,
                                 style,         
@@ -81,7 +85,16 @@ void eva_run(const char     *window_title,
                                 NULL,
                                 GetModuleHandleW(NULL),
                                 NULL);
-    ShowWindow(hwnd, SW_SHOW);
+    update_window();
+    _ctx.init_fn();
+    ShowWindow(_ctx.hwnd, SW_SHOW);
+    _ctx.window_shown = true;
+
+    // Let the application full it's framebuffer before we process WM_PAINT.
+    eva_event event = {
+        .type = EVA_EVENTTYPE_REDRAWFRAME,
+    };
+    _ctx.event_fn(&event);
 
     bool done = false;
     while (!(done || _ctx.quit_ordered)) {
@@ -96,20 +109,18 @@ void eva_run(const char     *window_title,
                 DispatchMessage(&msg);
             }
         }
-        /* check for window resized, this cannot happen in WM_SIZE as it explodes memory usage */
-       // if (_sapp_win32_update_dimensions()) {
-       //     #if defined(SOKOL_D3D11)
-       //     _sapp_d3d11_resize_default_render_target();
-       //     #endif
-       //     _sapp_win32_app_event(SAPP_EVENTTYPE_RESIZED);
+        // Check for window resized.
+        // This cannot happen in WM_SIZE as it explodes memory usage.
+       // if (update_window()) {
+       //     //_sapp_win32_app_event(SAPP_EVENTTYPE_RESIZED);
        // }
         if (_ctx.quit_requested) {
-            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            PostMessage(_ctx.hwnd, WM_CLOSE, 0, 0);
         }
     }
     _ctx.cleanup_fn();
 
-    DestroyWindow(hwnd);
+    DestroyWindow(_ctx.hwnd);
     UnregisterClassW(L"eva", GetModuleHandleW(NULL));
 }
 
@@ -178,7 +189,6 @@ uint64_t eva_time_since(uint64_t start)
 
 float eva_time_ms(uint64_t t)
 {
-    // Convert to ms before dividing to avoid loss of precision.
     float ms = t * 1000.0f;
     return ms / _ctx.ticks_per_sec.QuadPart;
 }
@@ -250,34 +260,110 @@ static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes)
     return size != 0;
 }
 
-LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    switch (uMsg) {
-        case WM_CLOSE:
-            // only give user-code a chance to intervene when eva_quit() wasn't already
-            // called
-            if (!_ctx.quit_ordered) {
-                // if window should be closed and event handling is enabled, give user
-                // code a chance to intervene via eva_cancel_quit()
-                _ctx.quit_requested = true;
+    if (_ctx.window_shown)
+    {
+        switch (uMsg) {
+            case WM_CLOSE:
+                // only give user-code a chance to intervene when eva_quit() wasn't already
+                // called
+                if (!_ctx.quit_ordered) {
+                    // if window should be closed and event handling is enabled, give user
+                    // code a chance to intervene via eva_cancel_quit()
+                    _ctx.quit_requested = true;
 
-                eva_event quit_event = { 
-                    .type = EVA_EVENTTYPE_QUITREQUESTED
-                };
-                _ctx.event_fn(&quit_event);
-                // user code hasn't intervened, quit the app
-                if (_ctx.quit_requested) {
-                    _ctx.quit_ordered = true;
+                    eva_event quit_event = { 
+                        .type = EVA_EVENTTYPE_QUITREQUESTED
+                    };
+                    _ctx.event_fn(&quit_event);
+                    // user code hasn't intervened, quit the app
+                    if (_ctx.quit_requested) {
+                        _ctx.quit_ordered = true;
+                    }
                 }
-            }
-            if (_ctx.quit_ordered) {
-                PostQuitMessage(0);
-            }
-            return 0;
-        default:
-            break;
-            
-    };
+                if (_ctx.quit_ordered) {
+                    PostQuitMessage(0);
+                }
+                return 0;
+            case WM_DPICHANGED: // Does this have the same issue as WM_SIZE?
+                puts("WM_DPICHANGED");
+                update_window();
+                // Redraw?
+                break;
+            case WM_PAINT:
+                {
+                    RECT draw_rect;
+                    if (GetUpdateRect(_ctx.hwnd, &draw_rect, FALSE)) {
+                        puts("WM_PAINT");
+
+
+                        BITMAPINFO bmi = {0};
+                        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                        bmi.bmiHeader.biWidth = _ctx.framebuffer_width;
+                        bmi.bmiHeader.biHeight = -_ctx.framebuffer_height;
+                        bmi.bmiHeader.biPlanes = 1;
+                        bmi.bmiHeader.biBitCount = 32;
+                        bmi.bmiHeader.biCompression = BI_RGB;
+
+                        // Get a paint DC for current window.
+                        // Paint DC contains the right scaling to match
+                        // the monitor DPI where the window is located.
+                        PAINTSTRUCT ps;
+                        HDC hdc = BeginPaint(_ctx.hwnd, &ps);
+
+                        // Draw into the region defined by draw rect.
+                        // This region should always map 1-to-1 with the 
+                        // region in the framebuffer
+                        SetDIBitsToDevice(
+                               hdc,
+                               draw_rect.left,                   // x dest
+                               draw_rect.top,                    // y dest
+                               draw_rect.right - draw_rect.left, // width
+                               draw_rect.bottom - draw_rect.top, // height
+                               draw_rect.left,                   // x src
+                               draw_rect.top,                    // y src
+                               0,                                // scanline 0
+                               draw_rect.bottom - draw_rect.top, // n scanlines
+                               _ctx.framebuffer,                 // buffer
+                               &bmi,                             // buffer info
+                               DIB_RGB_COLORS                    // raw colors
+                               );
+
+                        EndPaint(_ctx.hwnd, &ps);
+                    }
+                    break;
+                }
+            default:
+                break;
+
+        };
+    }
 
     return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
+
+static void update_window()
+{
+    INT dpi = GetDpiForWindow(_ctx.hwnd);
+    _ctx.scale_x = (float)dpi / USER_DEFAULT_SCREEN_DPI;
+    _ctx.scale_y = _ctx.scale_x; // Always the value on windows.
+
+    RECT rect;
+    if (GetWindowRect(_ctx.hwnd, &rect)) {
+        _ctx.window_width  = rect.right  - rect.left;
+        _ctx.window_height = rect.bottom - rect.top;
+    }
+
+    if (GetClientRect(_ctx.hwnd, &rect)) {
+        _ctx.framebuffer_width  = rect.right  - rect.left;
+        _ctx.framebuffer_height = rect.bottom - rect.top;
+    }
+
+    if (_ctx.framebuffer) {
+        free(_ctx.framebuffer);
+    }
+
+    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
+    _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
 }

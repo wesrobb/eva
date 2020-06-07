@@ -114,18 +114,16 @@ float eva_get_framebuffer_scale_y()
     return _ctx.scale_y;
 }
 
-static void eva_update_window(void)
+static void update_window(void)
 {
-    NSRect window_bounds  = _app_window.contentView.bounds;
+    NSRect content_bounds  = _app_window.contentView.bounds;
     NSRect backing_bounds = [_app_window convertRectToBacking:window_bounds];
 
     _ctx.window_width  = (int32_t)window_bounds.size.width;
     _ctx.window_height = (int32_t)window_bounds.size.height;
 
-    _ctx.scale_x =
-        (float)(backing_bounds.size.width / window_bounds.size.width);
-    _ctx.scale_y =
-        (float)(backing_bounds.size.height / window_bounds.size.height);
+    _ctx.scale_x = (float)backing_bounds.size.width / content_bounds.size.width;
+    _ctx.scale_y = (float)backing_bounds.size.height / content_bounds.size.height;
 
     _ctx.framebuffer_width  = (int32_t)(_ctx.window_width * _ctx.scale_x);
     _ctx.framebuffer_height = (int32_t)(_ctx.window_height * _ctx.scale_y);
@@ -133,7 +131,7 @@ static void eva_update_window(void)
         free(_ctx.framebuffer);
     }
 
-    int32_t size     = _ctx.framebuffer_width * _ctx.framebuffer_height;
+    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
     _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
 }
 
@@ -161,7 +159,7 @@ static void eva_update_window(void)
     _app_window.acceptsMouseMovedEvents = YES;
     _app_window.restorable              = YES;
 
-    eva_update_window();
+    update_window();
     _ctx.init_fn();
 
     // Setup window delegate
@@ -213,7 +211,7 @@ static void eva_update_window(void)
 
 - (void)windowDidResize:(NSNotification *)notification
 {
-    eva_update_window();
+    update_window();
 
     eva_event event = {
         .type                      = EVA_EVENTTYPE_WINDOW,
@@ -229,12 +227,12 @@ static void eva_update_window(void)
 
 - (void)windowDidMiniaturize:(NSNotification *)notification
 {
-    eva_update_window();
+    update_window();
 }
 
 - (void)windowDidDeminiaturize:(NSNotification *)notification
 {
-    eva_update_window();
+    update_window();
 }
 @end
 
@@ -284,7 +282,7 @@ static void eva_update_window(void)
 }
 - (void)viewDidChangeBackingProperties
 {
-    eva_update_window();
+    update_window();
 
     eva_event event = {
         .type = EVA_EVENTTYPE_REDRAWFRAME,
