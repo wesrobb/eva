@@ -114,14 +114,11 @@ void eva_cancel_quit();
 
 /**
  * Request that a frame be drawn using the current contents
- * of eva_get_framebuffer(). Typically your application would
+ * of eva_get_framebuffer(). Typically an application would
  * update the framebuffer on an event and then request that it
  * get drawn by calling this method.
- *
- * @param dirty_rect The portion of the frame the needs to be redrawn.
- *                   This can be set to NULL to force a full redraw.
  */
-void eva_request_frame(const eva_rect *dirty_rect);
+void eva_request_frame();
 
 int32_t eva_get_window_width();
 int32_t eva_get_window_height();

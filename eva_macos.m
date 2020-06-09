@@ -68,25 +68,9 @@ void eva_cancel_quit()
     _ctx.quit_ordered   = false;
 }
 
-void eva_request_frame(const eva_rect *dirty_rect)
+void eva_request_frame()
 {
-    if (dirty_rect) {
-        if (!eva_rect_empty(dirty_rect)) {
-
-            printf("request_frame x=%d, y=%d, w=%d, h=%d\n",
-                   dirty_rect->x,
-                   dirty_rect->y,
-                   dirty_rect->w,
-                   dirty_rect->h);
-            NSRect r = NSMakeRect(dirty_rect->x, dirty_rect->y,
-                                  dirty_rect->w, dirty_rect->h);
-            [_app_view setNeedsDisplayInRect:r];
-        }
-    }
-    else {
-        puts("request_full_frame");
-        [_app_view setNeedsDisplay:YES];
-    }
+    [_app_view setNeedsDisplay:YES];
 }
 
 int32_t eva_get_window_width()
@@ -249,20 +233,9 @@ static void update_window(void)
 @implementation eva_view
 - (void)drawRect:(NSRect)dirtyRect
 {
+    uint64_t start = eva_time_now();
+
     CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
-
-    eva_rect dirty_rect = {
-        .x = (int32_t)(dirtyRect.origin.x    * _ctx.scale_x),
-        .y = (int32_t)(dirtyRect.origin.y    * _ctx.scale_y),
-        .w = (int32_t)(dirtyRect.size.width  * _ctx.scale_x),
-        .h = (int32_t)(dirtyRect.size.height * _ctx.scale_y),
-    };
-
-    printf("drawRect x=%d, y=%d, w=%d, h=%d\n",
-           dirty_rect.x,
-           dirty_rect.y,
-           dirty_rect.w,
-           dirty_rect.h);
 
     int32_t size = _ctx.framebuffer_width * 
                    _ctx.framebuffer_height *
@@ -284,17 +257,18 @@ static void update_window(void)
                       NO,                         // No interpolation
                       kCGRenderingIntentDefault); // Default rendering
 
-    CGRect cg_rect = CGRectMake(dirty_rect.x,
-                                dirty_rect.y,
-                                dirty_rect.w,
-                                dirty_rect.h);
-    CGImageRef subImage = CGImageCreateWithImageInRect(image, cg_rect);
+    CGContextSetInterpolationQuality(context, kCGInterpolationNone);
 
-    CGContextDrawImage(context, dirtyRect, subImage);
+    CGContextDrawImage(context, self.bounds, image);
 
-    CGImageRelease(subImage);
     CGImageRelease(image);
     CGDataProviderRelease(provider);
+
+    printf("drawRect %.1fms\n", eva_time_since_ms(start));
+}
+- (BOOL)isFlipped
+{
+    return NO;
 }
 - (void)viewDidChangeBackingProperties
 {
