@@ -56,7 +56,7 @@ NSString *_shader_src = eva_shader(
 
 void init_mouse_event(eva_event *e, eva_mouse_event_type type);
 
-#define EVA_MAX_MTL_BUFFERS 2
+#define EVA_MAX_MTL_BUFFERS 3
 typedef struct eva_ctx {
     uint32_t window_width, window_height;
     uint32_t framebuffer_width, framebuffer_height;
@@ -190,7 +190,11 @@ void eva_cancel_quit()
 
 void eva_request_frame()
 {
-    [_app_view setNeedsDisplay:YES];
+    //[_app_view setNeedsDisplay:YES];
+
+    // Using draw over setNeedsDisplay makes for a 
+    // far less laggy UI.
+    [_app_view draw];
 }
 
 uint32_t eva_get_window_width()
@@ -302,7 +306,7 @@ static void update_window(void)
     _app_view = [[eva_view alloc] init];
     _app_view.device = _ctx.mtl_device;
     _app_view.paused = YES;
-    _app_view.enableSetNeedsDisplay = YES;
+    _app_view.enableSetNeedsDisplay = NO;
     [_app_view updateTrackingAreas];
     eva_view_delegate *viewController = [[eva_view_delegate alloc] init];
     _app_view.delegate = viewController;
