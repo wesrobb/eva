@@ -58,10 +58,11 @@ void init_mouse_event(eva_event *e, eva_mouse_event_type type);
 
 #define EVA_MAX_MTL_BUFFERS 2
 typedef struct eva_ctx {
-    int32_t     window_width, window_height;
-    int32_t     framebuffer_width, framebuffer_height;
+    uint32_t window_width, window_height;
+    uint32_t framebuffer_width, framebuffer_height;
+    float    scale_x, scale_y; // framebuffer / window
+
     eva_pixel  *framebuffer;
-    float       scale_x, scale_y; // framebuffer / window
     const char *window_title;
     bool        quit_requested;
     bool        quit_ordered;
@@ -192,12 +193,12 @@ void eva_request_frame()
     [_app_view setNeedsDisplay:YES];
 }
 
-int32_t eva_get_window_width()
+uint32_t eva_get_window_width()
 {
     return _ctx.window_width;
 }
 
-int32_t eva_get_window_height()
+uint32_t eva_get_window_height()
 {
     return _ctx.window_height;
 }
@@ -207,12 +208,12 @@ eva_pixel *eva_get_framebuffer()
     return _ctx.framebuffer;
 }
 
-int32_t eva_get_framebuffer_width()
+uint32_t eva_get_framebuffer_width()
 {
     return _ctx.framebuffer_width;
 }
 
-int32_t eva_get_framebuffer_height()
+uint32_t eva_get_framebuffer_height()
 {
     return _ctx.framebuffer_height;
 }
@@ -232,19 +233,19 @@ static void update_window(void)
     NSRect content_bounds  = _app_window.contentView.bounds;
     NSRect backing_bounds = [_app_window convertRectToBacking:content_bounds];
 
-    _ctx.window_width  = (int32_t)content_bounds.size.width;
-    _ctx.window_height = (int32_t)content_bounds.size.height;
+    _ctx.window_width  = (uint32_t)content_bounds.size.width;
+    _ctx.window_height = (uint32_t)content_bounds.size.height;
 
     _ctx.scale_x = (float)(backing_bounds.size.width / content_bounds.size.width);
     _ctx.scale_y = (float)(backing_bounds.size.height / content_bounds.size.height);
 
-    _ctx.framebuffer_width  = (int32_t)(_ctx.window_width * _ctx.scale_x);
-    _ctx.framebuffer_height = (int32_t)(_ctx.window_height * _ctx.scale_y);
+    _ctx.framebuffer_width  = (uint32_t)(_ctx.window_width * _ctx.scale_x);
+    _ctx.framebuffer_height = (uint32_t)(_ctx.window_height * _ctx.scale_y);
     if (_ctx.framebuffer) {
         free(_ctx.framebuffer);
     }
 
-    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
+    uint32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
     _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
 
    // if (_ctx.mtl_texture != nil) {
@@ -519,7 +520,6 @@ static void update_window(void)
 @end
 @implementation eva_view_delegate
 - (void) drawInMTKView:(nonnull MTKView *) view {
-    NSRect frame = [_app_view frame];
     uint64_t start = eva_time_now();
 
     // Most of this code is from minifb: https://github.com/emoon/minifb
@@ -551,7 +551,7 @@ static void update_window(void)
         { 0, 0, 0 },
         { _ctx.framebuffer_width, _ctx.framebuffer_height, 1 }
     };
-    int32_t bytes_per_row = _ctx.framebuffer_width * sizeof(eva_pixel);
+    uint32_t bytes_per_row = _ctx.framebuffer_width * sizeof(eva_pixel);
     id<MTLTexture> texture = _ctx.mtl_textures[_ctx.mtl_texture_index];
     [texture replaceRegion:region 
                mipmapLevel:0 

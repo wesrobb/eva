@@ -34,11 +34,11 @@ typedef enum eva_kb_event_type {
 } eva_kb_event_type;
 
 typedef struct eva_window_event {
-    int32_t window_width;
-    int32_t window_height;
+    uint32_t window_width;
+    uint32_t window_height;
 
-    int32_t framebuffer_width;
-    int32_t framebuffer_height;
+    uint32_t framebuffer_width;
+    uint32_t framebuffer_height;
 
     float scale_x;
     float scale_y;
@@ -120,16 +120,16 @@ void eva_cancel_quit();
  */
 void eva_request_frame();
 
-int32_t eva_get_window_width();
-int32_t eva_get_window_height();
+uint32_t eva_get_window_width();
+uint32_t eva_get_window_height();
 
 /**
  * Returns a pointer to the framebuffer that should be filled
  * for drawing.
  */
 eva_pixel *eva_get_framebuffer();
-int32_t eva_get_framebuffer_width();
-int32_t eva_get_framebuffer_height();
+uint32_t eva_get_framebuffer_width();
+uint32_t eva_get_framebuffer_height();
 
 float eva_get_framebuffer_scale_x();
 float eva_get_framebuffer_scale_y();
