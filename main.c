@@ -54,7 +54,7 @@ void event(eva_event *e)
         full_frame = true;
         break;
     }
-
+    puts("drawing");
     rect.x += delta_x;
     clear();
     draw_rect();

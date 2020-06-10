@@ -3,20 +3,60 @@
 #include <stdbool.h>
 
 #import <Cocoa/Cocoa.h>
+#import <MetalKit/MetalKit.h>
 
+#define eva_shader(inc, src)    @inc#src
+
+NSString *_shader_src = eva_shader(
+    "#include <metal_stdlib>\n",
+    using namespace metal;
+
+    struct vert_out {
+        float4 pos [[position]];
+        float2 tex_coord;
+    };
+
+    struct vert_in {
+        float4 pos [[position]];
+    };
+
+    vertex vert_out
+    vert_shader(unsigned int vert_id[[vertex_id]], const device vert_in *pos [[ buffer(0) ]]) {
+        vert_out out;
+
+        out.pos = pos[vert_id].pos;
+
+        out.tex_coord.x = (float) (vert_id / 2);
+        out.tex_coord.y = 1.0 - (float) (vert_id % 2);
+
+        return out;
+    }
+
+    fragment float4
+    frag_shader(vert_out input [[stage_in]], texture2d<half> framebuffer [[ texture(0) ]]) {
+        constexpr sampler tex_sampler(mag_filter::nearest, min_filter::nearest);
+
+        // Sample the framebuffer to obtain a color
+        const half4 sample = framebuffer.sample(tex_sampler, input.tex_coord);
+
+        return float4(sample);
+    };
+);
 
 @interface eva_app_delegate : NSObject <NSApplicationDelegate>
 @end
 @interface eva_window_delegate : NSObject <NSWindowDelegate>
 @end
-@interface eva_view : NSView {
+@interface eva_view : MTKView {
     NSTrackingArea *trackingArea;
 }
-- (void)drawRect:(NSRect)dirtyRect;
+@end
+@interface eva_view_delegate : NSViewController<MTKViewDelegate>
 @end
 
 void init_mouse_event(eva_event *e, eva_mouse_event_type type);
 
+#define EVA_MAX_MTL_BUFFERS 2
 typedef struct eva_ctx {
     int32_t     window_width, window_height;
     int32_t     framebuffer_width, framebuffer_height;
@@ -30,7 +70,27 @@ typedef struct eva_ctx {
     eva_event_fn   *event_fn;
     eva_cleanup_fn *cleanup_fn;
     eva_fail_fn    *fail_fn;
+
+    id<MTLLibrary>      mtl_library;
+    id<MTLDevice>       mtl_device;
+    id<MTLCommandQueue> mtl_cmd_queue;
+    id<MTLRenderPipelineState>  mtl_pipe_state;
+    id<MTLTexture>      mtl_textures[EVA_MAX_MTL_BUFFERS];
+    int8_t mtl_texture_index;
+
+    dispatch_semaphore_t semaphore; // Used for syncing with CPU/GPU
 } eva_ctx;
+
+typedef struct eva_vertex {
+    float x, y, z, w;
+} eva_vertex;
+
+static eva_vertex _vertices[4] = {
+    {-1.0, -1.0, 0, 1},
+    {-1.0,  1.0, 0, 1},
+    { 1.0, -1.0, 0, 1},
+    { 1.0,  1.0, 0, 1},
+};
 
 static eva_ctx _ctx;
 
@@ -38,6 +98,65 @@ static eva_app_delegate    *_app_delegate;
 static NSWindow            *_app_window;
 static eva_window_delegate *_app_window_delegate;
 static eva_view            *_app_view;
+
+static bool create_shaders()
+{
+    NSError *error = 0x0;
+    _ctx.mtl_library = [_ctx.mtl_device newLibraryWithSource:_shader_src
+                                                     options:[[MTLCompileOptions alloc] init]
+                                                       error:&error
+    ];
+    if (!error || _ctx.mtl_library) {
+        id<MTLFunction> vertex_shader_func   = 
+            [_ctx.mtl_library newFunctionWithName:@"vert_shader"];
+        if (vertex_shader_func) {
+            id<MTLFunction> fragment_shader_func = 
+                [_ctx.mtl_library newFunctionWithName:@"frag_shader"];
+            if (fragment_shader_func) {
+                // Create a reusable pipeline state
+                MTLRenderPipelineDescriptor *pipe_desc = [[MTLRenderPipelineDescriptor alloc] init];
+                pipe_desc.label = @"eva_mtl_pipeline";
+                pipe_desc.vertexFunction = vertex_shader_func;
+                pipe_desc.fragmentFunction = fragment_shader_func;
+                pipe_desc.colorAttachments[0].pixelFormat =
+                    MTLPixelFormatBGRA8Unorm;
+
+                _ctx.mtl_pipe_state = [_ctx.mtl_device newRenderPipelineStateWithDescriptor:pipe_desc error:&error];
+                if (_ctx.mtl_pipe_state) {
+                    return true;
+                }
+                else {
+                    _ctx.fail_fn(0, "Failed to metal pipeline state"); // TODO: Error codes
+                    return false;
+                }
+            }
+            else {
+                _ctx.fail_fn(0, "Failed to get frag_shader function");
+                return false;
+            }
+        }
+        else {
+            _ctx.fail_fn(0, "Failed to get vert_shader function");
+            return false;
+        }
+    } else {
+        _ctx.fail_fn(0, "Failed to create metal shader library");
+        return false;
+    }
+}
+
+static void init_textures() {
+    MTLTextureDescriptor *texture_desc
+        = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                            width:_ctx.framebuffer_width
+                                                           height:_ctx.framebuffer_height
+                                                        mipmapped:false];
+
+    // Create the texture from the device by using the descriptor
+    for (size_t i = 0; i < EVA_MAX_MTL_BUFFERS; ++i) {
+        _ctx.mtl_textures[i] = [_ctx.mtl_device newTextureWithDescriptor:texture_desc];
+    }
+}
 
 void eva_run(const char     *window_title,
              eva_init_fn    *init_fn,
@@ -127,6 +246,17 @@ static void update_window(void)
 
     int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
     _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
+
+   // if (_ctx.mtl_texture != nil) {
+   //     // TODO: Does this release the attached texture_desc created below?
+   //     [_ctx.mtl_texture release];
+   // }
+
+   // MTLTextureDescriptor *texture_desc = [[MTLTextureDescriptor alloc] init];
+   // texture_desc.pixelFormat = MTLPixelFormatBGRA8Unorm;
+   // texture_desc.width = _ctx.framebuffer_width;
+   // texture_desc.height = _ctx.framebuffer_height;
+   // _ctx.mtl_texture = [_app_view.device newTextureWithDescriptor:texture_desc];
 }
 
 @implementation eva_app_delegate
@@ -160,16 +290,29 @@ static void update_window(void)
     _app_window_delegate = [[eva_window_delegate alloc] init];
     _app_window.delegate = _app_window_delegate;
 
+    // Setup metal
+    _ctx.mtl_device = MTLCreateSystemDefaultDevice();
+    _ctx.mtl_cmd_queue = [_ctx.mtl_device newCommandQueue];
+    _ctx.semaphore = dispatch_semaphore_create(EVA_MAX_MTL_BUFFERS);
+    create_shaders();
+    init_textures();
+
     // Setup view
     _app_view = [[eva_view alloc] init];
-    _app_view.wantsLayer = YES;
+    _app_view.device = _ctx.mtl_device;
+    _app_view.paused = YES;
+    _app_view.enableSetNeedsDisplay = YES;
     [_app_view updateTrackingAreas];
+    eva_view_delegate *viewController = [[eva_view_delegate alloc] init];
+    _app_view.delegate = viewController;
 
     // Assign view to window
     _app_window.contentView = _app_view;
     [_app_window makeFirstResponder:_app_view];
     [_app_window center];
     [_app_window makeKeyAndOrderFront:nil];
+
+    [NSApp finishLaunching];
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
@@ -231,41 +374,6 @@ static void update_window(void)
 @end
 
 @implementation eva_view
-- (void)drawRect:(NSRect)dirtyRect
-{
-    uint64_t start = eva_time_now();
-
-    CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
-
-    int32_t size = _ctx.framebuffer_width * 
-                   _ctx.framebuffer_height *
-                   (int32_t)sizeof(eva_pixel);
-    CGDataProviderRef provider = CGDataProviderCreateWithData(
-        nil, _ctx.framebuffer, (uint32_t)size, nil
-    );
-
-    CGImageRef image =
-        CGImageCreate((size_t)_ctx.framebuffer_width,
-                      (size_t)_ctx.framebuffer_height,
-                      8,
-                      32,
-                      sizeof(eva_pixel) * (size_t)_ctx.framebuffer_width,
-                      _app_window.screen.colorSpace.CGColorSpace,
-                      kCGBitmapByteOrder32Big,
-                      provider,
-                      nil,                        // No decode
-                      NO,                         // No interpolation
-                      kCGRenderingIntentDefault); // Default rendering
-
-    CGContextSetInterpolationQuality(context, kCGInterpolationNone);
-
-    CGContextDrawImage(context, self.bounds, image);
-
-    CGImageRelease(image);
-    CGDataProviderRelease(provider);
-
-    printf("drawRect %.1fms\n", eva_time_since_ms(start));
-}
 - (BOOL)isFlipped
 {
     return NO;
@@ -407,6 +515,84 @@ static void update_window(void)
 }
 - (void)cursorUpdate:(NSEvent *)event
 {
+}
+@end
+@implementation eva_view_delegate
+- (void) drawInMTKView:(nonnull MTKView *) view {
+    NSRect frame = [_app_view frame];
+    uint64_t start = eva_time_now();
+
+    // Most of this code is from minifb: https://github.com/emoon/minifb
+
+    // Wait to ensure only MaxBuffersInFlight number of frames are getting proccessed
+    // by any stage in the Metal pipeline (App, Metal, Drivers, GPU, etc)
+    dispatch_semaphore_wait(_ctx.semaphore, DISPATCH_TIME_FOREVER);
+
+    _ctx.mtl_texture_index = (_ctx.mtl_texture_index + 1) % EVA_MAX_MTL_BUFFERS;
+
+    // Create a new command buffer for each render pass to the current drawable
+    id<MTLCommandBuffer> cmd_buf = [_ctx.mtl_cmd_queue commandBuffer];
+    cmd_buf.label = @"eva_command_buffer";
+
+    // Add completion hander which signals semaphore when Metal and the GPU has fully
+    // finished processing the commands we're encoding this frame.  This indicates when the
+    // dynamic buffers filled with our vertices, that we're writing to this frame, will no longer
+    // be needed by Metal and the GPU, meaning we can overwrite the buffer contents without
+    // corrupting the rendering.
+    __block dispatch_semaphore_t block_sema = _ctx.semaphore;
+    [cmd_buf addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        (void)buffer;
+        puts("command buffer complete");
+        dispatch_semaphore_signal(block_sema);
+    }];
+
+    // Copy the bytes from our data object into the texture
+    MTLRegion region = {
+        { 0, 0, 0 },
+        { _ctx.framebuffer_width, _ctx.framebuffer_height, 1 }
+    };
+    int32_t bytes_per_row = _ctx.framebuffer_width * sizeof(eva_pixel);
+    id<MTLTexture> texture = _ctx.mtl_textures[_ctx.mtl_texture_index];
+    [texture replaceRegion:region 
+               mipmapLevel:0 
+                 withBytes:_ctx.framebuffer 
+               bytesPerRow:bytes_per_row];
+
+    // Delay getting the currentRenderPassDescriptor until absolutely needed. This avoids
+    // holding onto the drawable and blocking the display pipeline any longer than necessary
+    MTLRenderPassDescriptor* pass_desc = view.currentRenderPassDescriptor;
+    if (pass_desc != nil) {
+        pass_desc.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 1.0, 0.0, 1.0);
+
+        // Create a render command encoder so we can render into something
+        id<MTLRenderCommandEncoder> render_enc = [cmd_buf renderCommandEncoderWithDescriptor:pass_desc];
+        render_enc.label = @"eva_command_encoder";
+
+        // Set render command encoder state
+        [render_enc setRenderPipelineState:_ctx.mtl_pipe_state];
+        [render_enc setVertexBytes:_vertices length:sizeof(_vertices) atIndex:0];
+
+        [render_enc setFragmentTexture:texture atIndex:0];
+
+        // Draw the vertices of our quads
+        [render_enc drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+
+        // We're done encoding commands
+        [render_enc endEncoding];
+
+        // Schedule a present once the framebuffer is complete using the current drawable
+        [cmd_buf presentDrawable:view.currentDrawable];
+    }
+
+    // Finalize rendering here & push the command buffer to the GPU
+    [cmd_buf commit];
+
+    printf("drawRect %.1fms\n", eva_time_since_ms(start));
+}
+- (void) mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size {
+	(void)view;
+	(void)size;
+    // resize
 }
 @end
 

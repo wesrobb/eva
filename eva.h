@@ -84,7 +84,7 @@ typedef struct eva_event {
 } eva_event;
 
 typedef struct eva_pixel {
-    uint8_t r, g, b, a;
+    uint8_t b, g, r, a;
 } eva_pixel;
 
 typedef struct eva_rect {

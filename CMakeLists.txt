@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 project(eva)
 
 add_executable(eva main.c eva_macos.m)
-target_link_libraries(eva "-framework Cocoa")
+target_link_libraries(eva "-framework Cocoa -framework Metal -framework MetalKit")
 target_compile_options(eva PRIVATE -g)
 
 add_custom_target(
