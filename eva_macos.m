@@ -56,7 +56,7 @@ NSString *_shader_src = eva_shader(
 
 void init_mouse_event(eva_event *e, eva_mouse_event_type type);
 
-#define EVA_MAX_MTL_BUFFERS 3
+#define EVA_MAX_MTL_BUFFERS 1
 typedef struct eva_ctx {
     uint32_t window_width, window_height;
     uint32_t framebuffer_width, framebuffer_height;
@@ -147,16 +147,6 @@ static bool create_shaders()
 }
 
 static void init_textures() {
-    MTLTextureDescriptor *texture_desc
-        = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                            width:_ctx.framebuffer_width
-                                                           height:_ctx.framebuffer_height
-                                                        mipmapped:false];
-
-    // Create the texture from the device by using the descriptor
-    for (size_t i = 0; i < EVA_MAX_MTL_BUFFERS; ++i) {
-        _ctx.mtl_textures[i] = [_ctx.mtl_device newTextureWithDescriptor:texture_desc];
-    }
 }
 
 void eva_run(const char     *window_title,
@@ -190,8 +180,6 @@ void eva_cancel_quit()
 
 void eva_request_frame()
 {
-    //[_app_view setNeedsDisplay:YES];
-
     // Using draw over setNeedsDisplay makes for a 
     // far less laggy UI.
     [_app_view draw];
@@ -245,6 +233,11 @@ static void update_window(void)
 
     _ctx.framebuffer_width  = (uint32_t)(_ctx.window_width * _ctx.scale_x);
     _ctx.framebuffer_height = (uint32_t)(_ctx.window_height * _ctx.scale_y);
+
+    // TODO: Optimization - Don't nuke the framebuffer if the window is getting
+    // smaller. Rather just adjust the width, height and pitch (bytes per row).
+    // Ditto for the MTL textures below - just adjust the region they render
+    // from in drawInMTKView
     if (_ctx.framebuffer) {
         free(_ctx.framebuffer);
     }
@@ -252,16 +245,21 @@ static void update_window(void)
     uint32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
     _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
 
-   // if (_ctx.mtl_texture != nil) {
-   //     // TODO: Does this release the attached texture_desc created below?
-   //     [_ctx.mtl_texture release];
-   // }
+    // Recreate the metal textures that the framebuffer gets written into.
+    MTLTextureDescriptor *texture_desc
+        = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                            width:_ctx.framebuffer_width
+                                                           height:_ctx.framebuffer_height
+                                                        mipmapped:false];
 
-   // MTLTextureDescriptor *texture_desc = [[MTLTextureDescriptor alloc] init];
-   // texture_desc.pixelFormat = MTLPixelFormatBGRA8Unorm;
-   // texture_desc.width = _ctx.framebuffer_width;
-   // texture_desc.height = _ctx.framebuffer_height;
-   // _ctx.mtl_texture = [_app_view.device newTextureWithDescriptor:texture_desc];
+    // Create the texture from the device by using the descriptor
+    for (size_t i = 0; i < EVA_MAX_MTL_BUFFERS; ++i) {
+        id<MTLTexture> texture = _ctx.mtl_textures[i];
+        if (texture != nil) {
+            [texture release];
+        }
+        _ctx.mtl_textures[i] = [_ctx.mtl_device newTextureWithDescriptor:texture_desc];
+    }
 }
 
 @implementation eva_app_delegate
@@ -526,11 +524,13 @@ static void update_window(void)
 - (void) drawInMTKView:(nonnull MTKView *) view {
     uint64_t start = eva_time_now();
 
-    // Most of this code is from minifb: https://github.com/emoon/minifb
-
     // Wait to ensure only MaxBuffersInFlight number of frames are getting proccessed
     // by any stage in the Metal pipeline (App, Metal, Drivers, GPU, etc)
+    // If we don't wait here there is a chance our framebuffer will be changing
+    // while a draw is reading from it which results in a partially filled
+    // framebuffer being rendered.
     dispatch_semaphore_wait(_ctx.semaphore, DISPATCH_TIME_FOREVER);
+
 
     _ctx.mtl_texture_index = (_ctx.mtl_texture_index + 1) % EVA_MAX_MTL_BUFFERS;
 
