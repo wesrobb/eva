@@ -5,12 +5,12 @@
 
 /**
  * Eva is an library for creating cross-platform event driven applications.
- * It provides a frame buffer for an application to render to and offers
- * dirty rect drawing optimizations to improve drawing performance.
+ * It provides a framebuffer for an application to render into.
  * All windows created by eva are high-dpi by default.
  *
- * This library is based heavily on Andre Weissflog's sokol-app.h:
- * https://github.com/floooh/sokol/blob/master/sokol_app.h
+ * This library uses code and ideas from the following libraries:
+ *     - https://github.com/floooh/sokol/blob/master/sokol_app.h
+ *     - https://github.com/emoon/minifb 
  */
 
 typedef enum eva_event_type {
@@ -64,12 +64,10 @@ typedef struct eva_kb_event {
     eva_kb_event_type type;
 
     /**
-     * Null-terminated array of UTF-8 encoded
-     * characters. 
+     * Null-terminated array of utf8 encoded characters. 
      *
-     * A single character is not sufficient since
-     * utf8 codepoints > 128 are larger than a
-     * single byte.
+     * A single character is not sufficient since utf8 codepoints > 128 are 
+     * larger than a single byte.
      */
     const char* utf8_codepoint;
 } eva_kb_event;
@@ -91,6 +89,24 @@ typedef struct eva_rect {
     int32_t x, y, w, h;
 } eva_rect;
 
+typedef struct eva_framebuffer {
+    uint32_t w, h;
+
+    uint32_t pitch;       // Max width
+    uint32_t max_height;  // Max height
+    
+    /**
+     * The dpi scale for high-dpi displays.
+     *
+     * e.g. On a typical retina display the window reports a resolution of
+     * 1440x900 but that actual framebuffer resolution is 2880x1800. In this
+     * case the scale will be x=2.0f and y=2.0f.
+     */
+    float scale_x, scale_y; 
+
+    eva_pixel *pixels;
+} eva_framebuffer;
+
 typedef void(eva_init_fn)(void);
 typedef void(eva_cleanup_fn)(void);
 typedef void(eva_event_fn)(eva_event *event);
@@ -110,7 +126,7 @@ void eva_run(const char     *window_title,
 /**
  * Use to cancel a pending quit on a EVA_EVENTTYPE_QUITREQUESTED event.
  */
-void eva_cancel_quit();
+void eva_cancel_quit(void);
 
 /**
  * Request that a frame be drawn using the current contents
@@ -118,24 +134,19 @@ void eva_cancel_quit();
  * update the framebuffer on an event and then request that it
  * get drawn by calling this method.
  */
-void eva_request_frame();
+void eva_request_frame(void);
 
-uint32_t eva_get_window_width();
-uint32_t eva_get_window_height();
+uint32_t eva_get_window_width(void);
+uint32_t eva_get_window_height(void);
 
 /**
- * Returns a pointer to the framebuffer that should be filled
- * for drawing.
+ * Returns the framebuffer struct that should be drawn into before requesting
+ * it be drawn to the screen with a call to eva_request_frame().
  */
-eva_pixel *eva_get_framebuffer();
-uint32_t eva_get_framebuffer_width();
-uint32_t eva_get_framebuffer_height();
+eva_framebuffer eva_get_framebuffer(void);
 
-float eva_get_framebuffer_scale_x();
-float eva_get_framebuffer_scale_y();
-
-void eva_time_init();
-uint64_t eva_time_now();
+void eva_time_init(void);
+uint64_t eva_time_now(void);
 uint64_t eva_time_since(uint64_t start);
 
 float eva_time_ms(uint64_t t);

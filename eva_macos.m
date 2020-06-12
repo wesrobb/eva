@@ -20,20 +20,27 @@ NSString *_shader_src = eva_shader(
         float4 pos [[position]];
     };
 
+    struct uniforms {
+        float tex_scale_x;
+        float tex_scale_y;
+    };
+
     vertex vert_out
-    vert_shader(unsigned int vert_id[[vertex_id]], const device vert_in *pos [[ buffer(0) ]]) {
+    vert_shader(unsigned int vert_id     [[ vertex_id ]],
+                const device vert_in *in [[ buffer(0) ]],
+                constant uniforms *u     [[ buffer(1) ]]) {
         vert_out out;
 
-        out.pos = pos[vert_id].pos;
-
-        out.tex_coord.x = (float) (vert_id / 2);
-        out.tex_coord.y = 1.0 - (float) (vert_id % 2);
+        out.pos         = in[vert_id].pos;
+        out.tex_coord.x = (float) (vert_id / 2) * u[0].tex_scale_x;
+        out.tex_coord.y = (1.0 - (float) (vert_id % 2)) * u[0].tex_scale_y;
 
         return out;
     }
 
     fragment float4
-    frag_shader(vert_out input [[stage_in]], texture2d<half> framebuffer [[ texture(0) ]]) {
+    frag_shader(vert_out input              [[stage_in    ]], 
+                texture2d<half> framebuffer [[ texture(0) ]]) {
         constexpr sampler tex_sampler(mag_filter::nearest, min_filter::nearest);
 
         // Sample the framebuffer to obtain a color
@@ -56,13 +63,11 @@ NSString *_shader_src = eva_shader(
 
 void init_mouse_event(eva_event *e, eva_mouse_event_type type);
 
-#define EVA_MAX_MTL_BUFFERS 1
+#define EVA_MAX_MTL_BUFFERS 3
 typedef struct eva_ctx {
+    eva_framebuffer framebuffer;
     uint32_t window_width, window_height;
-    uint32_t framebuffer_width, framebuffer_height;
-    float    scale_x, scale_y; // framebuffer / window
 
-    eva_pixel  *framebuffer;
     const char *window_title;
     bool        quit_requested;
     bool        quit_ordered;
@@ -72,15 +77,24 @@ typedef struct eva_ctx {
     eva_cleanup_fn *cleanup_fn;
     eva_fail_fn    *fail_fn;
 
-    id<MTLLibrary>      mtl_library;
-    id<MTLDevice>       mtl_device;
-    id<MTLCommandQueue> mtl_cmd_queue;
+    id<MTLLibrary>              mtl_library;
+    id<MTLDevice>               mtl_device;
+    id<MTLCommandQueue>         mtl_cmd_queue;
     id<MTLRenderPipelineState>  mtl_pipe_state;
-    id<MTLTexture>      mtl_textures[EVA_MAX_MTL_BUFFERS];
-    int8_t mtl_texture_index;
+
+    id<MTLTexture> mtl_textures[EVA_MAX_MTL_BUFFERS];
+    int8_t         mtl_texture_index;
 
     dispatch_semaphore_t semaphore; // Used for syncing with CPU/GPU
 } eva_ctx;
+
+// The percentage of the texture width / height that are actually in use.
+// e.g. The MTLTexture might be 2000x1600 but the framebuffer may only
+// be 1000x400. The texture scale would then be 0.5x0.25.
+typedef struct eva_uniforms {
+    float tex_scale_x;
+    float tex_scale_y;
+} eva_uniforms;
 
 typedef struct eva_vertex {
     float x, y, z, w;
@@ -100,7 +114,7 @@ static NSWindow            *_app_window;
 static eva_window_delegate *_app_window_delegate;
 static eva_view            *_app_view;
 
-static bool create_shaders()
+static bool create_shaders(void)
 {
     NSError *error = 0x0;
     _ctx.mtl_library = [_ctx.mtl_device newLibraryWithSource:_shader_src
@@ -146,9 +160,6 @@ static bool create_shaders()
     }
 }
 
-static void init_textures() {
-}
-
 void eva_run(const char     *window_title,
              eva_init_fn    *init_fn,
              eva_event_fn   *event_fn,
@@ -172,93 +183,88 @@ void eva_run(const char     *window_title,
     [NSApp run];
 }
 
-void eva_cancel_quit()
+void eva_cancel_quit(void)
 {
     _ctx.quit_requested = false;
     _ctx.quit_ordered   = false;
 }
 
-void eva_request_frame()
+void eva_request_frame(void)
 {
     // Using draw over setNeedsDisplay makes for a 
     // far less laggy UI.
     [_app_view draw];
 }
 
-uint32_t eva_get_window_width()
+uint32_t eva_get_window_width(void)
 {
     return _ctx.window_width;
 }
 
-uint32_t eva_get_window_height()
+uint32_t eva_get_window_height(void)
 {
     return _ctx.window_height;
 }
 
-eva_pixel *eva_get_framebuffer()
+eva_framebuffer eva_get_framebuffer(void)
 {
     return _ctx.framebuffer;
 }
 
-uint32_t eva_get_framebuffer_width()
-{
-    return _ctx.framebuffer_width;
-}
-
-uint32_t eva_get_framebuffer_height()
-{
-    return _ctx.framebuffer_height;
-}
-
-float eva_get_framebuffer_scale_x()
-{
-    return _ctx.scale_x;
-}
-
-float eva_get_framebuffer_scale_y()
-{
-    return _ctx.scale_y;
-}
-
 static void update_window(void)
 {
-    NSRect content_bounds  = _app_window.contentView.bounds;
+    NSRect content_bounds = _app_window.contentView.bounds;
     NSRect backing_bounds = [_app_window convertRectToBacking:content_bounds];
 
     _ctx.window_width  = (uint32_t)content_bounds.size.width;
     _ctx.window_height = (uint32_t)content_bounds.size.height;
 
-    _ctx.scale_x = (float)(backing_bounds.size.width / content_bounds.size.width);
-    _ctx.scale_y = (float)(backing_bounds.size.height / content_bounds.size.height);
+    _ctx.framebuffer.w = (uint32_t)(backing_bounds.size.width);
+    _ctx.framebuffer.h = (uint32_t)(backing_bounds.size.height);
 
-    _ctx.framebuffer_width  = (uint32_t)(_ctx.window_width * _ctx.scale_x);
-    _ctx.framebuffer_height = (uint32_t)(_ctx.window_height * _ctx.scale_y);
+    _ctx.framebuffer.scale_x = (float)(backing_bounds.size.width /
+                                       content_bounds.size.width);
+    _ctx.framebuffer.scale_y = (float)(backing_bounds.size.height /
+                                       content_bounds.size.height);
 
     // TODO: Optimization - Don't nuke the framebuffer if the window is getting
     // smaller. Rather just adjust the width, height and pitch (bytes per row).
     // Ditto for the MTL textures below - just adjust the region they render
     // from in drawInMTKView
-    if (_ctx.framebuffer) {
-        free(_ctx.framebuffer);
-    }
+    uint32_t capacity = _ctx.framebuffer.pitch * _ctx.framebuffer.max_height;
+    if (capacity == 0 ||
+        _ctx.framebuffer.w > _ctx.framebuffer.pitch ||
+        _ctx.framebuffer.h > _ctx.framebuffer.max_height) {
+        // The new framebuffer size is greater than the capacity available.
+        // Time to realloc.
 
-    uint32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
-    _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
-
-    // Recreate the metal textures that the framebuffer gets written into.
-    MTLTextureDescriptor *texture_desc
-        = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                            width:_ctx.framebuffer_width
-                                                           height:_ctx.framebuffer_height
-                                                        mipmapped:false];
-
-    // Create the texture from the device by using the descriptor
-    for (size_t i = 0; i < EVA_MAX_MTL_BUFFERS; ++i) {
-        id<MTLTexture> texture = _ctx.mtl_textures[i];
-        if (texture != nil) {
-            [texture release];
+        // If this is happening before the first frame then there will be
+        // no pixels yet 
+        if (_ctx.framebuffer.pixels != nil) {
+            free(_ctx.framebuffer.pixels);
         }
-        _ctx.mtl_textures[i] = [_ctx.mtl_device newTextureWithDescriptor:texture_desc];
+
+        puts("alloc framebuffer");
+        _ctx.framebuffer.pitch      = _ctx.framebuffer.w;
+        _ctx.framebuffer.max_height = _ctx.framebuffer.h;
+        uint32_t size = _ctx.framebuffer.pitch * _ctx.framebuffer.max_height;
+        _ctx.framebuffer.pixels = calloc((size_t)size, sizeof(eva_pixel));
+
+        // Recreate the metal textures that the framebuffer gets written into.
+        MTLTextureDescriptor *texture_desc
+            = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                 width:_ctx.framebuffer.pitch
+                                                                height:_ctx.framebuffer.max_height
+                                                             mipmapped:false];
+
+        // Create the texture from the device by using the descriptor
+        for (size_t i = 0; i < EVA_MAX_MTL_BUFFERS; ++i) {
+            id<MTLTexture> texture = _ctx.mtl_textures[i];
+            if (texture != nil) {
+                [texture release];
+            }
+            _ctx.mtl_textures[i] = [_ctx.mtl_device newTextureWithDescriptor:texture_desc];
+        }
     }
 }
 
@@ -286,9 +292,6 @@ static void update_window(void)
     _app_window.acceptsMouseMovedEvents = YES;
     _app_window.restorable              = YES;
 
-    update_window();
-    _ctx.init_fn();
-
     // Setup window delegate
     _app_window_delegate = [[eva_window_delegate alloc] init];
     _app_window.delegate = _app_window_delegate;
@@ -297,8 +300,9 @@ static void update_window(void)
     _ctx.mtl_device = MTLCreateSystemDefaultDevice();
     _ctx.mtl_cmd_queue = [_ctx.mtl_device newCommandQueue];
     _ctx.semaphore = dispatch_semaphore_create(EVA_MAX_MTL_BUFFERS);
+
+    update_window();
     create_shaders();
-    init_textures();
 
     // Setup view
     _app_view = [[eva_view alloc] init];
@@ -309,11 +313,13 @@ static void update_window(void)
     eva_view_delegate *viewController = [[eva_view_delegate alloc] init];
     _app_view.delegate = viewController;
 
-    // Assign view to window
-    _app_window.contentView = _app_view;
     [_app_window makeFirstResponder:_app_view];
     [_app_window center];
     [_app_window makeKeyAndOrderFront:nil];
+
+    _ctx.init_fn();
+    // Assign view to window
+    _app_window.contentView = _app_view;
 
     [NSApp finishLaunching];
 }
@@ -357,10 +363,10 @@ static void update_window(void)
         .type                      = EVA_EVENTTYPE_WINDOW,
         .window.window_width       = _ctx.window_width,
         .window.window_height      = _ctx.window_height,
-        .window.framebuffer_width  = _ctx.framebuffer_width,
-        .window.framebuffer_height = _ctx.framebuffer_height,
-        .window.scale_x            = _ctx.scale_x,
-        .window.scale_y            = _ctx.scale_y,
+        .window.framebuffer_width  = _ctx.framebuffer.w,
+        .window.framebuffer_height = _ctx.framebuffer.h,
+        .window.scale_x            = _ctx.framebuffer.scale_x,
+        .window.scale_y            = _ctx.framebuffer.scale_y,
     };
     _ctx.event_fn(&event);
 }
@@ -522,7 +528,7 @@ static void update_window(void)
 @end
 @implementation eva_view_delegate
 - (void) drawInMTKView:(nonnull MTKView *) view {
-    uint64_t start = eva_time_now();
+    //uint64_t start = eva_time_now();
 
     // Wait to ensure only MaxBuffersInFlight number of frames are getting proccessed
     // by any stage in the Metal pipeline (App, Metal, Drivers, GPU, etc)
@@ -546,21 +552,25 @@ static void update_window(void)
     __block dispatch_semaphore_t block_sema = _ctx.semaphore;
     [cmd_buf addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
         (void)buffer;
-        puts("command buffer complete");
         dispatch_semaphore_signal(block_sema);
     }];
 
     // Copy the bytes from our data object into the texture
     MTLRegion region = {
         { 0, 0, 0 },
-        { _ctx.framebuffer_width, _ctx.framebuffer_height, 1 }
+        { _ctx.framebuffer.w, _ctx.framebuffer.h, 1 }
     };
-    uint32_t bytes_per_row = _ctx.framebuffer_width * sizeof(eva_pixel);
+    uint32_t bytes_per_row = _ctx.framebuffer.pitch * sizeof(eva_pixel);
     id<MTLTexture> texture = _ctx.mtl_textures[_ctx.mtl_texture_index];
     [texture replaceRegion:region 
                mipmapLevel:0 
-                 withBytes:_ctx.framebuffer 
+                 withBytes:_ctx.framebuffer.pixels 
                bytesPerRow:bytes_per_row];
+
+    eva_uniforms uniforms = {
+        .tex_scale_x = _ctx.framebuffer.w / (float)_ctx.framebuffer.pitch,
+        .tex_scale_y = _ctx.framebuffer.h / (float)_ctx.framebuffer.max_height
+    };
 
     // Delay getting the currentRenderPassDescriptor until absolutely needed. This avoids
     // holding onto the drawable and blocking the display pipeline any longer than necessary
@@ -575,6 +585,7 @@ static void update_window(void)
         // Set render command encoder state
         [render_enc setRenderPipelineState:_ctx.mtl_pipe_state];
         [render_enc setVertexBytes:_vertices length:sizeof(_vertices) atIndex:0];
+        [render_enc setVertexBytes:&uniforms length:sizeof(eva_uniforms) atIndex:1];
 
         [render_enc setFragmentTexture:texture atIndex:0];
 
@@ -591,12 +602,11 @@ static void update_window(void)
     // Finalize rendering here & push the command buffer to the GPU
     [cmd_buf commit];
 
-    printf("drawRect %.1fms\n", eva_time_since_ms(start));
+    //printf("drawRect %.1fms\n", eva_time_since_ms(start));
 }
 - (void) mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size {
 	(void)view;
 	(void)size;
-    // resize
 }
 @end
 
@@ -604,12 +614,12 @@ static void update_window(void)
 
 #include <time.h>
 
-void eva_time_init()
+void eva_time_init(void)
 {
     // No-op on macos.
 }
 
-uint64_t eva_time_now()
+uint64_t eva_time_now(void)
 {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 }
