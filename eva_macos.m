@@ -63,7 +63,7 @@ NSString *_shader_src = eva_shader(
 
 void init_mouse_event(eva_event *e, eva_mouse_event_type type);
 
-#define EVA_MAX_MTL_BUFFERS 3
+#define EVA_MAX_MTL_BUFFERS 1
 typedef struct eva_ctx {
     eva_framebuffer framebuffer;
     uint32_t window_width, window_height;
@@ -86,6 +86,8 @@ typedef struct eva_ctx {
     int8_t         mtl_texture_index;
 
     dispatch_semaphore_t semaphore; // Used for syncing with CPU/GPU
+
+    uint64_t start_time;
 } eva_ctx;
 
 // The percentage of the texture width / height that are actually in use.
@@ -166,8 +168,7 @@ void eva_run(const char     *window_title,
              eva_cleanup_fn *cleanup_fn,
              eva_fail_fn    *fail_fn)
 {
-    // Usually time init would go first but macos's
-    // timers require no initialization.
+    _ctx.start_time = eva_time_now();
 
     _ctx.window_title = window_title;
     _ctx.init_fn      = init_fn;
@@ -235,8 +236,6 @@ static void update_window(void)
     if (capacity == 0 ||
         _ctx.framebuffer.w > _ctx.framebuffer.pitch ||
         _ctx.framebuffer.h > _ctx.framebuffer.max_height) {
-        // The new framebuffer size is greater than the capacity available.
-        // Time to realloc.
 
         // If this is happening before the first frame then there will be
         // no pixels yet 
@@ -244,9 +243,15 @@ static void update_window(void)
             free(_ctx.framebuffer.pixels);
         }
 
-        puts("alloc framebuffer");
-        _ctx.framebuffer.pitch      = _ctx.framebuffer.w;
-        _ctx.framebuffer.max_height = _ctx.framebuffer.h;
+        // Make the framebuffer large enough to hold pixels for the entire
+        // screen. This makes it unnecessary to reallocate the framebuffer
+        // when the window is resized. It should only need to be resized when
+        // moving to a higher resolution monitor.
+        NSRect screen_frame = NSScreen.mainScreen.frame;
+        NSRect scaled_frame = [_app_window convertRectToBacking:screen_frame];
+        _ctx.framebuffer.pitch      = (uint32_t)scaled_frame.size.width;
+        _ctx.framebuffer.max_height = (uint32_t)scaled_frame.size.height;
+
         uint32_t size = _ctx.framebuffer.pitch * _ctx.framebuffer.max_height;
         _ctx.framebuffer.pixels = calloc((size_t)size, sizeof(eva_pixel));
 
