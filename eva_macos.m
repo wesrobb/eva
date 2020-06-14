@@ -5,50 +5,8 @@
 #import <Cocoa/Cocoa.h>
 #import <MetalKit/MetalKit.h>
 
-#define eva_shader(inc, src)    @inc#src
-
-NSString *_shader_src = eva_shader(
-    "#include <metal_stdlib>\n",
-    using namespace metal;
-
-    struct vert_out {
-        float4 pos [[position]];
-        float2 tex_coord;
-    };
-
-    struct vert_in {
-        float4 pos [[position]];
-    };
-
-    struct uniforms {
-        float tex_scale_x;
-        float tex_scale_y;
-    };
-
-    vertex vert_out
-    vert_shader(unsigned int vert_id     [[ vertex_id ]],
-                const device vert_in *in [[ buffer(0) ]],
-                constant uniforms *u     [[ buffer(1) ]]) {
-        vert_out out;
-
-        out.pos         = in[vert_id].pos;
-        out.tex_coord.x = (float) (vert_id / 2) * u[0].tex_scale_x;
-        out.tex_coord.y = (1.0 - (float) (vert_id % 2)) * u[0].tex_scale_y;
-
-        return out;
-    }
-
-    fragment float4
-    frag_shader(vert_out input              [[stage_in    ]], 
-                texture2d<half> framebuffer [[ texture(0) ]]) {
-        constexpr sampler tex_sampler(mag_filter::nearest, min_filter::nearest);
-
-        // Sample the framebuffer to obtain a color
-        const half4 sample = framebuffer.sample(tex_sampler, input.tex_coord);
-
-        return float4(sample);
-    };
-);
+static bool try_frame();
+static bool create_shaders(void);
 
 @interface eva_app_delegate : NSObject <NSApplicationDelegate>
 @end
@@ -72,6 +30,7 @@ typedef struct eva_ctx {
 
     eva_init_fn    init_fn;
     eva_event_fn   event_fn;
+    eva_frame_fn   frame_fn;
     eva_cleanup_fn cleanup_fn;
     eva_fail_fn    fail_fn;
 
@@ -89,6 +48,7 @@ typedef struct eva_ctx {
     dispatch_semaphore_t semaphore; // Used for syncing with CPU/GPU
 
     uint64_t start_time;
+    bool request_frame;
 } eva_ctx;
 
 // The percentage of the texture width / height that are actually in use.
@@ -117,55 +77,10 @@ static NSWindow            *_app_window;
 static eva_window_delegate *_app_window_delegate;
 static eva_view            *_app_view;
 
-static bool create_shaders(void)
-{
-    NSError *error = 0x0;
-    _ctx.mtl_library = [_ctx.mtl_device newLibraryWithSource:_shader_src
-                                                     options:[[MTLCompileOptions alloc] init]
-                                                       error:&error
-    ];
-    if (!error || _ctx.mtl_library) {
-        id<MTLFunction> vertex_shader_func   = 
-            [_ctx.mtl_library newFunctionWithName:@"vert_shader"];
-        if (vertex_shader_func) {
-            id<MTLFunction> fragment_shader_func = 
-                [_ctx.mtl_library newFunctionWithName:@"frag_shader"];
-            if (fragment_shader_func) {
-                // Create a reusable pipeline state
-                MTLRenderPipelineDescriptor *pipe_desc = [[MTLRenderPipelineDescriptor alloc] init];
-                pipe_desc.label = @"eva_mtl_pipeline";
-                pipe_desc.vertexFunction = vertex_shader_func;
-                pipe_desc.fragmentFunction = fragment_shader_func;
-                pipe_desc.colorAttachments[0].pixelFormat =
-                    MTLPixelFormatBGRA8Unorm;
-
-                _ctx.mtl_pipe_state = [_ctx.mtl_device newRenderPipelineStateWithDescriptor:pipe_desc error:&error];
-                if (_ctx.mtl_pipe_state) {
-                    return true;
-                }
-                else {
-                    _ctx.fail_fn(0, "Failed to metal pipeline state"); // TODO: Error codes
-                    return false;
-                }
-            }
-            else {
-                _ctx.fail_fn(0, "Failed to get frag_shader function");
-                return false;
-            }
-        }
-        else {
-            _ctx.fail_fn(0, "Failed to get vert_shader function");
-            return false;
-        }
-    } else {
-        _ctx.fail_fn(0, "Failed to create metal shader library");
-        return false;
-    }
-}
-
 void eva_run(const char     *window_title,
              eva_init_fn    init_fn,
              eva_event_fn   event_fn,
+             eva_frame_fn   frame_fn,
              eva_cleanup_fn cleanup_fn,
              eva_fail_fn    fail_fn)
 {
@@ -174,6 +89,7 @@ void eva_run(const char     *window_title,
     _ctx.window_title = window_title;
     _ctx.init_fn      = init_fn;
     _ctx.event_fn     = event_fn;
+    _ctx.frame_fn     = frame_fn;
     _ctx.cleanup_fn   = cleanup_fn;
     _ctx.fail_fn      = fail_fn;
 
@@ -193,6 +109,7 @@ void eva_cancel_quit(void)
 
 void eva_request_frame(void)
 {
+    _ctx.request_frame = true;
     // Using draw over setNeedsDisplay makes for a 
     // far less laggy UI.
     [_app_view draw];
@@ -399,10 +316,6 @@ static void update_window(void)
 @end
 
 @implementation eva_view
-- (BOOL)isFlipped
-{
-    return NO;
-}
 - (void)viewDidChangeBackingProperties
 {
     update_window();
@@ -460,6 +373,9 @@ static void update_window(void)
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_LEFT, EVA_MOUSE_PRESSED);
+        if (try_frame()) {
+            [self draw];
+        }
     }
 }
 - (void)mouseUp:(NSEvent *)event
@@ -470,6 +386,9 @@ static void update_window(void)
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_LEFT, EVA_MOUSE_RELEASED);
+        if (try_frame()) {
+            [self draw];
+        }
     }
 }
 - (void)rightMouseDown:(NSEvent *)event
@@ -480,6 +399,9 @@ static void update_window(void)
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_PRESSED);
+        if (try_frame()) {
+            [self draw];
+        }
     }
 }
 - (void)rightMouseUp:(NSEvent *)event
@@ -490,6 +412,9 @@ static void update_window(void)
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_RELEASED);
+        if (try_frame()) {
+            [self draw];
+        }
     }
 }
 - (void)otherMouseDown:(NSEvent *)event
@@ -500,6 +425,9 @@ static void update_window(void)
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_PRESSED);
+        if (try_frame()) {
+            [self draw];
+        }
     }
 }
 - (void)otherMouseUp:(NSEvent *)event
@@ -510,6 +438,9 @@ static void update_window(void)
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_RELEASED);
+        if (try_frame()) {
+            [self draw];
+        }
     }
 }
 - (void)mouseMoved:(NSEvent *)event
@@ -519,6 +450,9 @@ static void update_window(void)
     if (_ctx.mouse_moved_fn) {
         _ctx.mouse_moved_fn((int32_t)round(mouse_pos.x),
                             (int32_t)round(mouse_pos.y));
+        if (try_frame()) {
+            [self draw];
+        }
     }
 }
 - (void)mouseDragged:(NSEvent *)event
@@ -531,6 +465,7 @@ static void update_window(void)
 }
 - (void)scrollWheel:(NSEvent *)event
 {
+    try_frame();
 }
 - (void)keyDown:(NSEvent *)event
 {
@@ -543,9 +478,12 @@ static void update_window(void)
     };
 
     _ctx.event_fn(&e);
+
+    try_frame();
 }
 - (void)keyUp:(NSEvent *)event
 {
+    try_frame();
 }
 - (void)flagsChanged:(NSEvent *)event
 {
@@ -556,7 +494,7 @@ static void update_window(void)
 @end
 @implementation eva_view_delegate
 - (void) drawInMTKView:(nonnull MTKView *) view {
-    //uint64_t start = eva_time_now();
+    uint64_t start = eva_time_now();
 
     // Wait to ensure only MaxBuffersInFlight number of frames are getting proccessed
     // by any stage in the Metal pipeline (App, Metal, Drivers, GPU, etc)
@@ -564,7 +502,6 @@ static void update_window(void)
     // while a draw is reading from it which results in a partially filled
     // framebuffer being rendered.
     dispatch_semaphore_wait(_ctx.semaphore, DISPATCH_TIME_FOREVER);
-
 
     _ctx.mtl_texture_index = (_ctx.mtl_texture_index + 1) % EVA_MAX_MTL_BUFFERS;
 
@@ -630,7 +567,7 @@ static void update_window(void)
     // Finalize rendering here & push the command buffer to the GPU
     [cmd_buf commit];
 
-    //printf("drawRect %.1fms\n", eva_time_since_ms(start));
+    printf("drawRect %.1fms\n", eva_time_since_ms(start));
 }
 - (void) mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size {
 	(void)view;
@@ -696,3 +633,114 @@ bool eva_rect_empty(const eva_rect *a)
            a->w == 0 &&
            a->h == 0;
 }
+
+static bool try_frame()
+{
+    if (_ctx.request_frame) {
+        _ctx.request_frame = true;
+
+        // There is a chance that the frame_fn is not sent and the application
+        // is just writing directly to the framebuffer in the event handlers
+        // and then requesting to draw with eva_request_frame(). In this case
+        // we still want to draw.
+        if (_ctx.frame_fn) {
+            _ctx.frame_fn(&_ctx.framebuffer);
+        }
+
+        return true;
+    }
+    
+    return false;
+}
+
+#define eva_shader(inc, src)    @inc#src
+
+NSString *_shader_src = eva_shader(
+    "#include <metal_stdlib>\n",
+    using namespace metal;
+
+    struct vert_out {
+        float4 pos [[position]];
+        float2 tex_coord;
+    };
+
+    struct vert_in {
+        float4 pos [[position]];
+    };
+
+    struct uniforms {
+        float tex_scale_x;
+        float tex_scale_y;
+    };
+
+    vertex vert_out
+    vert_shader(unsigned int vert_id     [[ vertex_id ]],
+                const device vert_in *in [[ buffer(0) ]],
+                constant uniforms *u     [[ buffer(1) ]]) {
+        vert_out out;
+
+        out.pos         = in[vert_id].pos;
+        out.tex_coord.x = (float) (vert_id / 2) * u[0].tex_scale_x;
+        out.tex_coord.y = (1.0 - (float) (vert_id % 2)) * u[0].tex_scale_y;
+
+        return out;
+    }
+
+    fragment float4
+    frag_shader(vert_out input              [[stage_in    ]], 
+                texture2d<half> framebuffer [[ texture(0) ]]) {
+        constexpr sampler tex_sampler(mag_filter::nearest, min_filter::nearest);
+
+        // Sample the framebuffer to obtain a color
+        const half4 sample = framebuffer.sample(tex_sampler, input.tex_coord);
+
+        return float4(sample);
+    };
+);
+
+static bool create_shaders(void)
+{
+    NSError *error = 0x0;
+    _ctx.mtl_library = [_ctx.mtl_device newLibraryWithSource:_shader_src
+                                                     options:[[MTLCompileOptions alloc] init]
+                                                       error:&error
+    ];
+    if (!error || _ctx.mtl_library) {
+        id<MTLFunction> vertex_shader_func   = 
+            [_ctx.mtl_library newFunctionWithName:@"vert_shader"];
+        if (vertex_shader_func) {
+            id<MTLFunction> fragment_shader_func = 
+                [_ctx.mtl_library newFunctionWithName:@"frag_shader"];
+            if (fragment_shader_func) {
+                // Create a reusable pipeline state
+                MTLRenderPipelineDescriptor *pipe_desc = [[MTLRenderPipelineDescriptor alloc] init];
+                pipe_desc.label = @"eva_mtl_pipeline";
+                pipe_desc.vertexFunction = vertex_shader_func;
+                pipe_desc.fragmentFunction = fragment_shader_func;
+                pipe_desc.colorAttachments[0].pixelFormat =
+                    MTLPixelFormatBGRA8Unorm;
+
+                _ctx.mtl_pipe_state = [_ctx.mtl_device newRenderPipelineStateWithDescriptor:pipe_desc error:&error];
+                if (_ctx.mtl_pipe_state) {
+                    return true;
+                }
+                else {
+                    _ctx.fail_fn(0, "Failed to metal pipeline state"); // TODO: Error codes
+                    return false;
+                }
+            }
+            else {
+                _ctx.fail_fn(0, "Failed to get frag_shader function");
+                return false;
+            }
+        }
+        else {
+            _ctx.fail_fn(0, "Failed to get vert_shader function");
+            return false;
+        }
+    } else {
+        _ctx.fail_fn(0, "Failed to create metal shader library");
+        return false;
+    }
+}
+

@@ -1,8 +1,5 @@
 #pragma once
 
-#include <stdbool.h>
-#include <stdint.h>
-
 /**
  * Eva is an library for creating cross-platform event driven applications.
  * It provides a framebuffer for an application to render into.
@@ -13,6 +10,9 @@
  *     - https://github.com/emoon/minifb 
  *     - https://www.glfw.org
  */
+
+#include <stdbool.h>
+#include <stdint.h>
 
 typedef enum eva_event_type {
     EVA_EVENTTYPE_WINDOW,
@@ -40,7 +40,7 @@ typedef struct eva_kb_event {
     eva_kb_event_type type;
 
     /**
-     * Null-terminated array of utf8 encoded characters. 
+     * @brief Null-terminated array of utf8 encoded characters. 
      *
      * A single character is not sufficient since utf8 codepoints > 128 are 
      * larger than a single byte.
@@ -71,7 +71,7 @@ typedef struct eva_framebuffer {
     uint32_t max_height;  // Max height
     
     /**
-     * The dpi scale for high-dpi displays.
+     * @brief The dpi scale for high-dpi displays.
      *
      * e.g. On a typical retina display the window reports a resolution of
      * 1440x900 but that actual framebuffer resolution is 2880x1800. In this
@@ -83,11 +83,11 @@ typedef struct eva_framebuffer {
 } eva_framebuffer;
 
 /**
- * \brief Identifiers for individual mouse buttons.
+ * @brief Identifiers for individual mouse buttons.
  *
- * \see \ref eva_mouse_btn_fn
+ * @see @ref eva_mouse_btn_fn
  *
- * \ingroup input
+ * @ingroup input
  */
 typedef enum eva_mouse_btn {
     EVA_MOUSE_BTN_LEFT,
@@ -96,11 +96,11 @@ typedef enum eva_mouse_btn {
 } eva_mouse_btn;
 
 /**
- * \brief Identifiers for mouse actions.
+ * @brief Identifiers for mouse actions.
  *
- * \see \ref eva_mouse_btn_fn
+ * @see @ref eva_mouse_btn_fn
  *
- * \ingroup input
+ * @ingroup input
  */
 typedef enum eva_mouse_action {
     EVA_MOUSE_PRESSED,
@@ -113,45 +113,62 @@ typedef void(*eva_event_fn)(eva_event *event);
 typedef void(*eva_fail_fn)(int32_t error_code, const char *error_string);
 
 /**
- * \brief The function pointer type for mouse moved event callbacks.
+ * @brief The function pointer type for frame callbacks.
+ *
+ * This is the function pointer type for frame callbacks. It has the following
+ * signature:
+ * @code
+ * void frame(const eva_framebuffer* fb);
+ * @endcode
+ *
+ * This function is called when it is time to draw to the screen. This happens
+ * when either a window event happens (e.g. window is resized or moved between
+ * monitors) or an event is triggered in the application (e.g. 
+ * [mouse click](@ref eva_mouse_btn_fn)) and the application requested a frame
+ * be drawn via a call to [eva_request_frame](@ref eva_request_frame).
+ */
+typedef void(*eva_frame_fn)(const eva_framebuffer* fb);
+
+/**
+ * @brief The function pointer type for mouse moved event callbacks.
  *
  * This is the function pointer type for mouse moved event callbacks. It has
  * the following signature:
- * \code
+ * @code
  * void mouse_moved(int32_t mouse_x, int32_t mouse_y);
- * \endcode
+ * @endcode
  *
- * \param[in] x The mouse's new x position relative to the left of the window's
+ * @param[in] x The mouse's new x position relative to the left of the window's
  * content area.
- * \param[in] y The mouse's new y position relative to the top of the window's
+ * @param[in] y The mouse's new y position relative to the top of the window's
  * content area.
  *
- * \see \ref eva_set_mouse_moved_fn
+ * @see @ref eva_set_mouse_moved_fn
  *
- * \ingroup input
+ * @ingroup input
  */
 typedef void(*eva_mouse_moved_fn)(int32_t x, int32_t y);
 
 /**
- * \brief The function pointer type for mouse button event callbacks.
+ * @brief The function pointer type for mouse button event callbacks.
  *
  * This is the function pointer type for mouse button event callbacks. It has
  * the following signature:
- * \code
+ * @code
  * void mouse_button(int32_t x, int32_y, 
  *                   eva_mouse_btn btn, eva_mouse_action action);
- * \endcode
+ * @endcode
  *
- * \param[in] x The mouse's x position relative to the left of the window's
+ * @param[in] x The mouse's x position relative to the left of the window's
  * content area at the time of the button action.
- * \param[in] y The mouse's y position relative to the top of the window's
+ * @param[in] y The mouse's y position relative to the top of the window's
  * content area at the time of the button action.
- * \param[in] btn The [button](/ref eva_mouse_btn) that triggered the action.
- * \param[in] action The [action](/ref eva_mouse_action) that occurred.
+ * @param[in] btn The [button](/ref eva_mouse_btn) that triggered the action.
+ * @param[in] action The [action](/ref eva_mouse_action) that occurred.
  *
- * \see \ref eva_set_mouse_moved_fn
+ * @see @ref eva_set_mouse_moved_fn
  *
- * \ingroup input
+ * @ingroup input
  */
 typedef void(*eva_mouse_btn_fn)(int32_t x, int32_t y, 
                                 eva_mouse_btn btn, eva_mouse_action action);
@@ -160,11 +177,12 @@ typedef void(*eva_mouse_btn_fn)(int32_t x, int32_t y,
  * Start the application. This will create a window with high-dpi support
  * if possible. The provided event function is resposible for populating
  * the eva framebuffer and then requesting a draw with
- * eva_request_frame(dirty_rect).
+ * eva_request_frame().
  */
 void eva_run(const char     *window_title,
              eva_init_fn    init_fn,
              eva_event_fn   event_fn,
+             eva_frame_fn   frame_fn,
              eva_cleanup_fn cleanup_fn,
              eva_fail_fn    fail_fn);
 /**
@@ -173,9 +191,14 @@ void eva_run(const char     *window_title,
 void eva_cancel_quit(void);
 
 /**
- * Request that a frame be drawn using the current contents of 
- * eva_get_framebuffer(). Typically an application would update the framebuffer
- * on an event and then request that it get drawn by calling this method.
+ * @brief Request that a frame be drawn.
+ *
+ * This will trigger the [frame callback](@ref eva_frame_fn) once the current
+ * event has finished being processed. 
+ *
+ * Only one call to the (frame callback)[@ref eva_frame_fn] will actually take
+ * place and only one frame will actually be drawn no matter how many times 
+ * this method is called in the current event handler. 
  */
 void eva_request_frame(void);
 
@@ -189,20 +212,20 @@ uint32_t eva_get_window_height(void);
 eva_framebuffer eva_get_framebuffer(void);
 
 /** 
- * \brief Sets a function to be called when the mouse is moved.
+ * @brief Sets a function to be called when the mouse is moved.
  *
- * See \ref eva_mouse_moved_fn
+ * See @ref eva_mouse_moved_fn
  *
- * \ingroup input
+ * @ingroup input
  */
 void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn);
 
 /** 
- * \brief Sets a function to be called when a mouse button is pressed/released.
+ * @brief Sets a function to be called when a mouse button is pressed/released.
  *
- * See \ref eva_mouse_btn_fn
+ * See @ref eva_mouse_btn_fn
  *
- * \ingroup input
+ * @ingroup input
  */
 void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn);
 
