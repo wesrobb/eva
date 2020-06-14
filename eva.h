@@ -107,8 +107,53 @@ typedef enum eva_mouse_action {
     EVA_MOUSE_RELEASED
 } eva_mouse_action;
 
+/**
+ * @brief The function pointer type for the initialization callback.
+ *
+ * This is the function pointer type for the initialization callback. It has
+ * the following signature:
+ * @code
+ * void init(void);
+ * @endcode
+ *
+ * See @ref eva_set_init_fn
+ *
+ * @ingroup initalization
+ */
 typedef void(*eva_init_fn)(void);
+
+/**
+ * @brief The function pointer type for the cleanup callback.
+ *
+ * This is the function pointer type for the cleanup callback. It has
+ * the following signature:
+ * @code
+ * void cleanup(void);
+ * @endcode
+ *
+ * See @ref eva_set_cleanup_fn
+ *
+ * @ingroup shutdown
+ */
 typedef void(*eva_cleanup_fn)(void);
+
+/**
+ * @brief The function pointer type for the quit requested callback.
+ *
+ * This is the function pointer type for the quit requested callback. It has
+ * the following signature:
+ * @code
+ * bool cancel_quit(void);
+ * @endcode
+ *
+ * @return True to continue the quit sequence, false otherwise.
+ *
+ * @see @ref eva_set_quit_requested_fn
+ *
+ * @ingroup shutdown
+ */
+typedef bool(*eva_cancel_quit_fn)(void);
+
 typedef void(*eva_event_fn)(eva_event *event);
 typedef void(*eva_fail_fn)(int32_t error_code, const char *error_string);
 
@@ -126,6 +171,10 @@ typedef void(*eva_fail_fn)(int32_t error_code, const char *error_string);
  * monitors) or an event is triggered in the application (e.g. 
  * [mouse click](@ref eva_mouse_btn_fn)) and the application requested a frame
  * be drawn via a call to [eva_request_frame](@ref eva_request_frame).
+ *
+ * see @ref eva_request_frame
+ *
+ * @ingroup drawing
  */
 typedef void(*eva_frame_fn)(const eva_framebuffer* fb);
 
@@ -180,15 +229,9 @@ typedef void(*eva_mouse_btn_fn)(int32_t x, int32_t y,
  * eva_request_frame().
  */
 void eva_run(const char     *window_title,
-             eva_init_fn    init_fn,
-             eva_event_fn   event_fn,
-             eva_frame_fn   frame_fn,
-             eva_cleanup_fn cleanup_fn,
-             eva_fail_fn    fail_fn);
-/**
- * Use to cancel a pending quit on a EVA_EVENTTYPE_QUITREQUESTED event.
- */
-void eva_cancel_quit(void);
+             eva_event_fn    event_fn,
+             eva_frame_fn    frame_fn,
+             eva_fail_fn     fail_fn);
 
 /**
  * @brief Request that a frame be drawn.
@@ -199,6 +242,8 @@ void eva_cancel_quit(void);
  * Only one call to the (frame callback)[@ref eva_frame_fn] will actually take
  * place and only one frame will actually be drawn no matter how many times 
  * this method is called in the current event handler. 
+ *
+ * @ingroup draw
  */
 void eva_request_frame(void);
 
@@ -210,6 +255,40 @@ uint32_t eva_get_window_height(void);
  * it be drawn to the screen with a call to eva_request_frame().
  */
 eva_framebuffer eva_get_framebuffer(void);
+
+/** 
+ * @brief Set a function to be called during application initialization.
+ *
+ * This function is called once during application startup and should be used
+ * to prepare the application state before the first [frame](@ref eva_frame_fn)
+ * is rendered.
+ * 
+ * @see @ref eva_init_fn
+ *
+ * @ingroup initialization
+ */
+void eva_set_init_fn(eva_init_fn init_fn);
+
+/** 
+ * @brief Set a function to be called during application shutdown.
+ *
+ * This function is called once it is confirmed that the application will be
+ * shutdown. 
+ * 
+ * @see @ref eva_cleanup_fn
+ *
+ * @ingroup shutdown
+ */
+void eva_set_cleanup_fn(eva_cleanup_fn cleanup_fn);
+
+/** 
+ * @brief Set a function to be called when an application quit is requested.
+ *
+ * @see @ref eva_cancel_quit_fn
+ *
+ * @ingroup shutdown
+ */
+void eva_set_cancel_quit_fn(eva_cancel_quit_fn cancel_quit_fn);
 
 /** 
  * @brief Sets a function to be called when the mouse is moved.
@@ -233,7 +312,7 @@ eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);
 bool eva_rect_empty(const eva_rect *a);
 
 /**
- * Initialize the timer subsystem.
+ * Initialize the time subsystem.
  */
 void eva_time_init(void);
 uint64_t eva_time_now(void);

@@ -28,10 +28,10 @@ typedef struct eva_ctx {
     bool        quit_requested;
     bool        quit_ordered;
 
-    eva_init_fn    *init_fn;
-    eva_event_fn   *event_fn;
-    eva_cleanup_fn *cleanup_fn;
-    eva_fail_fn    *fail_fn;
+    eva_init_fn     *init_fn;
+    eva_event_fn    *event_fn;
+    eva_shutdown_fn *shutdown_fn;
+    eva_fail_fn     *fail_fn;
 
     LARGE_INTEGER ticks_per_sec;
     HWND hwnd;
@@ -41,11 +41,11 @@ typedef struct eva_ctx {
 
 static eva_ctx _ctx;
 
-void eva_run(const char     *window_title,
-             eva_init_fn    *init_fn,
-             eva_event_fn   *event_fn,
-             eva_cleanup_fn *cleanup_fn,
-             eva_fail_fn    *fail_fn)
+void eva_run(const char      *window_title,
+             eva_init_fn     *init_fn,
+             eva_event_fn    *event_fn,
+             eva_shutdown_fn *shutdown_fn,
+             eva_fail_fn     *fail_fn)
 {
     eva_time_init();
 

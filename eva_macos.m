@@ -28,11 +28,12 @@ typedef struct eva_ctx {
     bool        quit_requested;
     bool        quit_ordered;
 
-    eva_init_fn    init_fn;
-    eva_event_fn   event_fn;
-    eva_frame_fn   frame_fn;
-    eva_cleanup_fn cleanup_fn;
-    eva_fail_fn    fail_fn;
+    eva_init_fn        init_fn;
+    eva_event_fn       event_fn;
+    eva_frame_fn       frame_fn;
+    eva_cleanup_fn     cleanup_fn;
+    eva_cancel_quit_fn cancel_quit_fn;
+    eva_fail_fn        fail_fn;
 
     eva_mouse_moved_fn mouse_moved_fn;
     eva_mouse_btn_fn   mouse_btn_fn;
@@ -78,19 +79,15 @@ static eva_window_delegate *_app_window_delegate;
 static eva_view            *_app_view;
 
 void eva_run(const char     *window_title,
-             eva_init_fn    init_fn,
-             eva_event_fn   event_fn,
-             eva_frame_fn   frame_fn,
-             eva_cleanup_fn cleanup_fn,
-             eva_fail_fn    fail_fn)
+             eva_event_fn    event_fn,
+             eva_frame_fn    frame_fn,
+             eva_fail_fn     fail_fn)
 {
     _ctx.start_time = eva_time_now();
 
     _ctx.window_title = window_title;
-    _ctx.init_fn      = init_fn;
     _ctx.event_fn     = event_fn;
     _ctx.frame_fn     = frame_fn;
-    _ctx.cleanup_fn   = cleanup_fn;
     _ctx.fail_fn      = fail_fn;
 
     [NSApplication sharedApplication];
@@ -99,12 +96,6 @@ void eva_run(const char     *window_title,
     NSApp.delegate         = _app_delegate;
     [NSApp activateIgnoringOtherApps:YES];
     [NSApp run];
-}
-
-void eva_cancel_quit(void)
-{
-    _ctx.quit_requested = false;
-    _ctx.quit_ordered   = false;
 }
 
 void eva_request_frame(void)
@@ -128,6 +119,21 @@ uint32_t eva_get_window_height(void)
 eva_framebuffer eva_get_framebuffer(void)
 {
     return _ctx.framebuffer;
+}
+
+void eva_set_init_fn(eva_init_fn init_fn)
+{
+    _ctx.init_fn = init_fn;
+}
+
+void eva_set_cleanup_fn(eva_cleanup_fn cleanup_fn)
+{
+    _ctx.cleanup_fn = cleanup_fn;
+}
+
+void eva_set_cancel_quit_fn(eva_cancel_quit_fn cancel_quit_fn)
+{
+    _ctx.cancel_quit_fn = cancel_quit_fn;
 }
 
 void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn)
@@ -250,8 +256,10 @@ static void update_window(void)
     [_app_window center];
     [_app_window makeKeyAndOrderFront:nil];
 
-    _ctx.init_fn();
-    // Assign view to window
+    if (_ctx.init_fn) {
+        _ctx.init_fn();
+    }
+    // Assign view to window which will initiate a draw for the first frame.
     _app_window.contentView = _app_view;
 
     [NSApp finishLaunching];
@@ -273,15 +281,20 @@ static void update_window(void)
         // code a chance to intervene via eva_cancel_quit()
         _ctx.quit_requested = true;
 
-        eva_event quit_event = { .type = EVA_EVENTTYPE_QUITREQUESTED };
-        _ctx.event_fn(&quit_event);
+        if (_ctx.cancel_quit_fn) {
+            // See if the user code wants to cancel the quit sequence.
+            _ctx.quit_requested = !_ctx.cancel_quit_fn();
+        }
+
         // user code hasn't intervened, quit the app
         if (_ctx.quit_requested) {
             _ctx.quit_ordered = true;
         }
     }
     if (_ctx.quit_ordered) {
-        _ctx.cleanup_fn();
+        if (_ctx.cleanup_fn) {
+            _ctx.cleanup_fn();
+        }
         return YES;
     } else {
         return NO;
