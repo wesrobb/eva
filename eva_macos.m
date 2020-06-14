@@ -61,8 +61,6 @@ NSString *_shader_src = eva_shader(
 @interface eva_view_delegate : NSViewController<MTKViewDelegate>
 @end
 
-void init_mouse_event(eva_event *e, eva_mouse_event_type type);
-
 #define EVA_MAX_MTL_BUFFERS 1
 typedef struct eva_ctx {
     eva_framebuffer framebuffer;
@@ -72,10 +70,13 @@ typedef struct eva_ctx {
     bool        quit_requested;
     bool        quit_ordered;
 
-    eva_init_fn    *init_fn;
-    eva_event_fn   *event_fn;
-    eva_cleanup_fn *cleanup_fn;
-    eva_fail_fn    *fail_fn;
+    eva_init_fn    init_fn;
+    eva_event_fn   event_fn;
+    eva_cleanup_fn cleanup_fn;
+    eva_fail_fn    fail_fn;
+
+    eva_mouse_moved_fn mouse_moved_fn;
+    eva_mouse_btn_fn   mouse_btn_fn;
 
     id<MTLLibrary>              mtl_library;
     id<MTLDevice>               mtl_device;
@@ -163,10 +164,10 @@ static bool create_shaders(void)
 }
 
 void eva_run(const char     *window_title,
-             eva_init_fn    *init_fn,
-             eva_event_fn   *event_fn,
-             eva_cleanup_fn *cleanup_fn,
-             eva_fail_fn    *fail_fn)
+             eva_init_fn    init_fn,
+             eva_event_fn   event_fn,
+             eva_cleanup_fn cleanup_fn,
+             eva_fail_fn    fail_fn)
 {
     _ctx.start_time = eva_time_now();
 
@@ -210,6 +211,16 @@ uint32_t eva_get_window_height(void)
 eva_framebuffer eva_get_framebuffer(void)
 {
     return _ctx.framebuffer;
+}
+
+void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn)
+{
+    _ctx.mouse_moved_fn = mouse_moved_fn;
+}
+
+void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn)
+{
+    _ctx.mouse_btn_fn = mouse_btn_fn;
 }
 
 static void update_window(void)
@@ -436,75 +447,87 @@ static void update_window(void)
 }
 - (void)mouseEntered:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_ENTERED);
-    _ctx.event_fn(&e);
 }
 - (void)mouseExited:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_EXITED);
-    _ctx.event_fn(&e);
 }
+
 - (void)mouseDown:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
-    e.mouse.left_btn_pressed = true;
-    _ctx.event_fn(&e);
+    if (_ctx.mouse_btn_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
+                          (int32_t)round(mouse_pos.y),
+                          EVA_MOUSE_BTN_LEFT, EVA_MOUSE_PRESSED);
+    }
 }
 - (void)mouseUp:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
-    e.mouse.left_btn_released = true;
-    _ctx.event_fn(&e);
+    if (_ctx.mouse_btn_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
+                          (int32_t)round(mouse_pos.y),
+                          EVA_MOUSE_BTN_LEFT, EVA_MOUSE_RELEASED);
+    }
 }
 - (void)rightMouseDown:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
-    e.mouse.right_btn_pressed = true;
-    _ctx.event_fn(&e);
+    if (_ctx.mouse_btn_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
+                          (int32_t)round(mouse_pos.y),
+                          EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_PRESSED);
+    }
 }
 - (void)rightMouseUp:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
-    e.mouse.right_btn_released = true;
-    _ctx.event_fn(&e);
+    if (_ctx.mouse_btn_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
+                          (int32_t)round(mouse_pos.y),
+                          EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_RELEASED);
+    }
 }
 - (void)otherMouseDown:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED);
-    e.mouse.middle_btn_pressed = true;
-    _ctx.event_fn(&e);
+    if (_ctx.mouse_btn_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
+                          (int32_t)round(mouse_pos.y),
+                          EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_PRESSED);
+    }
 }
 - (void)otherMouseUp:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED);
-    e.mouse.middle_btn_released = true;
-    _ctx.event_fn(&e);
+    if (_ctx.mouse_btn_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
+                          (int32_t)round(mouse_pos.y),
+                          EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_RELEASED);
+    }
 }
 - (void)mouseMoved:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_MOVED);
-    _ctx.event_fn(&e);
+    NSPoint location = [event locationInWindow];
+    NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+    if (_ctx.mouse_moved_fn) {
+        _ctx.mouse_moved_fn((int32_t)round(mouse_pos.x),
+                            (int32_t)round(mouse_pos.y));
+    }
 }
 - (void)mouseDragged:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_MOVED);
-    _ctx.event_fn(&e);
+    [self mouseMoved:event];
 }
 - (void)rightMouseDragged:(NSEvent *)event
 {
-    eva_event e;
-    init_mouse_event(&e, EVA_MOUSE_EVENTTYPE_MOUSE_MOVED);
-    _ctx.event_fn(&e);
+    [self mouseMoved:event];
 }
 - (void)scrollWheel:(NSEvent *)event
 {
@@ -672,15 +695,4 @@ bool eva_rect_empty(const eva_rect *a)
            a->y == 0 &&
            a->w == 0 &&
            a->h == 0;
-}
-
-void init_mouse_event(eva_event *e, eva_mouse_event_type type)
-{
-    NSPoint mouse_position = _app_window.mouseLocationOutsideOfEventStream;
-
-    memset(e, 0, sizeof(*e));
-    e->type          = EVA_EVENTTYPE_MOUSE;
-    e->mouse.type    = type;
-    e->mouse.mouse_x = (int32_t)mouse_position.x;
-    e->mouse.mouse_y = (int32_t)mouse_position.y;
 }

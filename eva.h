@@ -8,26 +8,18 @@
  * It provides a framebuffer for an application to render into.
  * All windows created by eva are high-dpi by default.
  *
- * This library uses code and ideas from the following libraries:
+ * Eva take snippets of inspiration and code from the following libraries:
  *     - https://github.com/floooh/sokol/blob/master/sokol_app.h
  *     - https://github.com/emoon/minifb 
+ *     - https://www.glfw.org
  */
 
 typedef enum eva_event_type {
     EVA_EVENTTYPE_WINDOW,
-    EVA_EVENTTYPE_MOUSE,
     EVA_EVENTTYPE_KB,
     EVA_EVENTTYPE_REDRAWFRAME,
     EVA_EVENTTYPE_QUITREQUESTED,
 } eva_event_type;
-
-typedef enum eva_mouse_event_type {
-    EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED,
-    EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED,
-    EVA_MOUSE_EVENTTYPE_MOUSE_MOVED,
-    EVA_MOUSE_EVENTTYPE_MOUSE_ENTERED,
-    EVA_MOUSE_EVENTTYPE_MOUSE_EXITED,
-} eva_mouse_event_type;
 
 typedef enum eva_kb_event_type {
     EVA_KB_EVENTTYPE_KEYDOWN,
@@ -44,22 +36,6 @@ typedef struct eva_window_event {
     float scale_y;
 } eva_window_event;
 
-typedef struct eva_mouse_event {
-    eva_mouse_event_type type;
-
-    int32_t mouse_x;
-    int32_t mouse_y;
-
-    bool left_btn_pressed;
-    bool left_btn_released;
-
-    bool middle_btn_pressed;
-    bool middle_btn_released;
-
-    bool right_btn_pressed;
-    bool right_btn_released;
-} eva_mouse_event;
-
 typedef struct eva_kb_event {
     eva_kb_event_type type;
 
@@ -75,7 +51,6 @@ typedef struct eva_kb_event {
 typedef struct eva_event {
     eva_event_type type;
     union {
-        eva_mouse_event  mouse;
         eva_window_event window;
         eva_kb_event     kb;
     };
@@ -107,10 +82,79 @@ typedef struct eva_framebuffer {
     eva_pixel *pixels;
 } eva_framebuffer;
 
-typedef void(eva_init_fn)(void);
-typedef void(eva_cleanup_fn)(void);
-typedef void(eva_event_fn)(eva_event *event);
-typedef void(eva_fail_fn)(int32_t error_code, const char *error_string);
+/**
+ * \brief Identifiers for individual mouse buttons.
+ *
+ * \see \ref eva_mouse_btn_fn
+ *
+ * \ingroup input
+ */
+typedef enum eva_mouse_btn {
+    EVA_MOUSE_BTN_LEFT,
+    EVA_MOUSE_BTN_RIGHT,
+    EVA_MOUSE_BTN_MIDDLE,
+} eva_mouse_btn;
+
+/**
+ * \brief Identifiers for mouse actions.
+ *
+ * \see \ref eva_mouse_btn_fn
+ *
+ * \ingroup input
+ */
+typedef enum eva_mouse_action {
+    EVA_MOUSE_PRESSED,
+    EVA_MOUSE_RELEASED
+} eva_mouse_action;
+
+typedef void(*eva_init_fn)(void);
+typedef void(*eva_cleanup_fn)(void);
+typedef void(*eva_event_fn)(eva_event *event);
+typedef void(*eva_fail_fn)(int32_t error_code, const char *error_string);
+
+/**
+ * \brief The function pointer type for mouse moved event callbacks.
+ *
+ * This is the function pointer type for mouse moved event callbacks. It has
+ * the following signature:
+ * \code
+ * void mouse_moved(int32_t mouse_x, int32_t mouse_y);
+ * \endcode
+ *
+ * \param[in] x The mouse's new x position relative to the left of the window's
+ * content area.
+ * \param[in] y The mouse's new y position relative to the top of the window's
+ * content area.
+ *
+ * \see \ref eva_set_mouse_moved_fn
+ *
+ * \ingroup input
+ */
+typedef void(*eva_mouse_moved_fn)(int32_t x, int32_t y);
+
+/**
+ * \brief The function pointer type for mouse button event callbacks.
+ *
+ * This is the function pointer type for mouse button event callbacks. It has
+ * the following signature:
+ * \code
+ * void mouse_button(int32_t x, int32_y, 
+ *                   eva_mouse_btn btn, eva_mouse_action action);
+ * \endcode
+ *
+ * \param[in] x The mouse's x position relative to the left of the window's
+ * content area at the time of the button action.
+ * \param[in] y The mouse's y position relative to the top of the window's
+ * content area at the time of the button action.
+ * \param[in] btn The [button](/ref eva_mouse_btn) that triggered the action.
+ * \param[in] action The [action](/ref eva_mouse_action) that occurred.
+ *
+ * \see \ref eva_set_mouse_moved_fn
+ *
+ * \ingroup input
+ */
+typedef void(*eva_mouse_btn_fn)(int32_t x, int32_t y, 
+                                eva_mouse_btn btn, eva_mouse_action action);
 
 /**
  * Start the application. This will create a window with high-dpi support
@@ -119,20 +163,19 @@ typedef void(eva_fail_fn)(int32_t error_code, const char *error_string);
  * eva_request_frame(dirty_rect).
  */
 void eva_run(const char     *window_title,
-             eva_init_fn    *init_fn,
-             eva_event_fn   *event_fn,
-             eva_cleanup_fn *cleanup_fn,
-             eva_fail_fn    *fail_fn);
+             eva_init_fn    init_fn,
+             eva_event_fn   event_fn,
+             eva_cleanup_fn cleanup_fn,
+             eva_fail_fn    fail_fn);
 /**
  * Use to cancel a pending quit on a EVA_EVENTTYPE_QUITREQUESTED event.
  */
 void eva_cancel_quit(void);
 
 /**
- * Request that a frame be drawn using the current contents
- * of eva_get_framebuffer(). Typically an application would
- * update the framebuffer on an event and then request that it
- * get drawn by calling this method.
+ * Request that a frame be drawn using the current contents of 
+ * eva_get_framebuffer(). Typically an application would update the framebuffer
+ * on an event and then request that it get drawn by calling this method.
  */
 void eva_request_frame(void);
 
@@ -145,6 +188,30 @@ uint32_t eva_get_window_height(void);
  */
 eva_framebuffer eva_get_framebuffer(void);
 
+/** 
+ * \brief Sets a function to be called when the mouse is moved.
+ *
+ * See \ref eva_mouse_moved_fn
+ *
+ * \ingroup input
+ */
+void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn);
+
+/** 
+ * \brief Sets a function to be called when a mouse button is pressed/released.
+ *
+ * See \ref eva_mouse_btn_fn
+ *
+ * \ingroup input
+ */
+void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn);
+
+eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);
+bool eva_rect_empty(const eva_rect *a);
+
+/**
+ * Initialize the timer subsystem.
+ */
 void eva_time_init(void);
 uint64_t eva_time_now(void);
 uint64_t eva_time_since(uint64_t start);
@@ -152,6 +219,3 @@ uint64_t eva_time_since(uint64_t start);
 float eva_time_ms(uint64_t t);
 float eva_time_elapsed_ms(uint64_t start, uint64_t end);
 float eva_time_since_ms(uint64_t start);
-
-eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);
-bool eva_rect_empty(const eva_rect *a);
