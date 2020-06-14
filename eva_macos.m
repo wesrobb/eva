@@ -650,7 +650,7 @@ bool eva_rect_empty(const eva_rect *a)
 static bool try_frame()
 {
     if (_ctx.request_frame) {
-        _ctx.request_frame = true;
+        _ctx.request_frame = false;
 
         // There is a chance that the frame_fn is not sent and the application
         // is just writing directly to the framebuffer in the event handlers
