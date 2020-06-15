@@ -7,52 +7,50 @@
 
 #pragma comment(lib, "User32.lib")
 
-static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes);
-static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes);
 static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 static void update_window();
 static void handle_paint();
 static void handle_close();
 static void handle_resize();
-static void handle_mouse_event(int32_t mouse_x, int32_t mouse_y,
-                               bool left_btn_pressed, bool left_btn_released,
-                               bool right_btn_pressed, bool right_btn_released,
-                               bool middle_btn_pressed, bool middle_btn_released);
+static void try_frame();
+static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes);
+static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes);
 
 typedef struct eva_ctx {
     int32_t     window_width, window_height;
-    int32_t     framebuffer_width, framebuffer_height;
-    eva_pixel  *framebuffer;
-    float       scale_x, scale_y; // framebuffer / window
+    eva_framebuffer framebuffer;
     const char *window_title;
     bool        quit_requested;
     bool        quit_ordered;
 
-    eva_init_fn     *init_fn;
-    eva_event_fn    *event_fn;
-    eva_shutdown_fn *shutdown_fn;
-    eva_fail_fn     *fail_fn;
+    eva_init_fn        init_fn;
+    eva_event_fn       event_fn;
+    eva_frame_fn       frame_fn;
+    eva_cleanup_fn     cleanup_fn;
+    eva_fail_fn        fail_fn;
+    eva_cancel_quit_fn cancel_quit_fn;
+    eva_mouse_moved_fn mouse_moved_fn;
+    eva_mouse_btn_fn   mouse_btn_fn;
 
     LARGE_INTEGER ticks_per_sec;
     HWND hwnd;
     bool window_shown;
     bool resizing;
+    bool frame_requested;
 } eva_ctx;
 
 static eva_ctx _ctx;
 
-void eva_run(const char      *window_title,
-             eva_init_fn     *init_fn,
-             eva_event_fn    *event_fn,
-             eva_shutdown_fn *shutdown_fn,
-             eva_fail_fn     *fail_fn)
+void eva_run(const char    *window_title,
+             eva_event_fn   event_fn,
+             eva_frame_fn   frame_fn,
+             eva_fail_fn    fail_fn)
 {
     eva_time_init();
 
     _ctx.window_title = window_title;
-    _ctx.init_fn      = init_fn;
     _ctx.event_fn     = event_fn;
-    _ctx.cleanup_fn   = cleanup_fn;
+    _ctx.frame_fn     = frame_fn;
     _ctx.fail_fn      = fail_fn;
 
    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
@@ -97,14 +95,15 @@ void eva_run(const char      *window_title,
                                 NULL);
     update_window();
     _ctx.init_fn();
-    ShowWindow(_ctx.hwnd, SW_SHOW);
-    _ctx.window_shown = true;
 
-    // Let the application full it's framebuffer before we process WM_PAINT.
+    // Let the application full it's framebuffer before showing the window.
     eva_event event = {
         .type = EVA_EVENTTYPE_REDRAWFRAME,
     };
     _ctx.event_fn(&event);
+
+    ShowWindow(_ctx.hwnd, SW_SHOW);
+    _ctx.window_shown = true;
 
     bool done = false;
     while (!(done || _ctx.quit_ordered)) {
@@ -129,72 +128,49 @@ void eva_run(const char      *window_title,
     UnregisterClassW(L"eva", GetModuleHandleW(NULL));
 }
 
-void eva_cancel_quit()
+void eva_request_frame()
 {
-    _ctx.quit_requested = false;
-    _ctx.quit_ordered   = false;
+    _ctx.frame_requested = true;
 }
 
-void eva_request_frame(const eva_rect* dirty_rect)
-{
-    if (dirty_rect) {
-        if (eva_rect_empty(dirty_rect)) {
-            printf("requested rect is x=%d, y=%d, w=%d, h=%d\n", 
-                    dirty_rect->x,
-                    dirty_rect->y,
-                    dirty_rect->w,
-                    dirty_rect->h);
-
-
-            RECT r = {
-                .left = dirty_rect->x,
-                .top  = dirty_rect->y,
-                .right = dirty_rect->x + dirty_rect->w,
-                .bottom = dirty_rect->y + dirty_rect->h,
-            };
-            InvalidateRect(_ctx.hwnd, &r, FALSE);
-            UpdateWindow(_ctx.hwnd); // Force WM_PAINT immediately
-        }
-    }
-    else {
-        InvalidateRect(_ctx.hwnd, NULL, FALSE);
-        UpdateWindow(_ctx.hwnd); // Force WM_PAINT immediately
-    }
-}
-
-int32_t eva_get_window_width()
+uint32_t eva_get_window_width()
 {
     return _ctx.window_width;
 }
 
-int32_t eva_get_window_height()
+uint32_t eva_get_window_height()
 {
     return _ctx.window_height;
 }
 
-eva_pixel *eva_get_framebuffer()
+eva_framebuffer eva_get_framebuffer()
 {
     return _ctx.framebuffer;
 }
 
-int32_t eva_get_framebuffer_width()
+void eva_set_init_fn(eva_init_fn init_fn)
 {
-    return _ctx.framebuffer_width;
+    _ctx.init_fn = init_fn;
 }
 
-int32_t eva_get_framebuffer_height()
+void eva_set_cleanup_fn(eva_cleanup_fn cleanup_fn)
 {
-    return _ctx.framebuffer_height;
+    _ctx.cleanup_fn = cleanup_fn;
 }
 
-float eva_get_framebuffer_scale_x()
+void eva_set_cancel_quit_fn(eva_cancel_quit_fn cancel_quit_fn)
 {
-    return _ctx.scale_x;
+    _ctx.cancel_quit_fn = cancel_quit_fn;
 }
 
-float eva_get_framebuffer_scale_y()
+void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn)
 {
-    return _ctx.scale_y;
+    _ctx.mouse_moved_fn = mouse_moved_fn;
+}
+
+void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn)
+{
+    _ctx.mouse_btn_fn = mouse_btn_fn;
 }
 
 void eva_time_init()
@@ -259,38 +235,6 @@ bool eva_rect_empty(const eva_rect *a)
            a->h == 0;
 }
 
-static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes)
-{
-    assert(src && dst && (dst_num_bytes > 1));
-    memset(dst, 0, dst_num_bytes);
-
-    int dst_chars = dst_num_bytes / sizeof(wchar_t);
-    int dst_needed = MultiByteToWideChar(CP_UTF8, 0, src, -1, 0, 0);
-    if ((dst_needed > 0) && (dst_needed < dst_chars)) {
-        MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dst_chars);
-        return true;
-    }
-
-    return false;
-}
-
-static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes)
-{
-    assert(src && dst && (dst_num_bytes > 1));
-    memset(dst, 0, dst_num_bytes);
-
-    int32_t size = WideCharToMultiByte(
-            CP_UTF8,      // Going from UTF16 -> UTF8
-            0,            // dwFlags must be 0 when using CP_UTF8
-            src,          // UTF16 input data
-            -1,           // Input len. -1 = use null terminator for len
-            dst,          // Output buffer
-            dst_num_bytes,// Output buffer capacity 
-            NULL, NULL);  // Always NULL for CP_UTF8
-
-    return size != 0;
-}
-
 static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if (_ctx.window_shown)
@@ -302,6 +246,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             case WM_DPICHANGED:
                 puts("WM_DPICHANGED");
                 update_window();
+                try_frame();
                 // Redraw?
                 break;
             case WM_PAINT:
@@ -309,68 +254,61 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 break;
             case WM_SIZE:
                 handle_resize();
+                try_frame();
                 break;
             case WM_MOUSEMOVE:
-                {
+                if (_ctx.mouse_moved_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
-                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
-                                       false, false,
-                                       false, false,
-                                       false, false);
+                    _ctx.mouse_moved_fn(mouse_pos.x, mouse_pos.y);
+                    try_frame();
                 }
                 break;
             case WM_LBUTTONDOWN:
-                {
+                if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
-                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
-                                       true,  false,
-                                       false, false,
-                                       false, false);
+                    _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
+                                      EVA_MOUSE_BTN_LEFT, EVA_MOUSE_PRESSED);
+                    try_frame();
                 }
                 break;
             case WM_LBUTTONUP:
-                {
+                if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
-                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
-                                       false, true,
-                                       false, false,
-                                       false, false);
+                    _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
+                                      EVA_MOUSE_BTN_LEFT, EVA_MOUSE_RELEASED);
+                    try_frame();
                 }
                 break;
             case WM_RBUTTONDOWN:
-                {
+                if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
-                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
-                                       false, false,
-                                       true,  false,
-                                       false, false);
+                    _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
+                                      EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_PRESSED);
+                    try_frame();
                 }
                 break;
             case WM_RBUTTONUP:
-                {
+                if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
-                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
-                                       false, false,
-                                       false, true,
-                                       false, false);
+                    _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
+                                      EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_RELEASED);
+                    try_frame();
                 }
                 break;
             case WM_MBUTTONDOWN:
-                {
+                if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
-                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
-                                       false, false,
-                                       false, false,
-                                       true,  false);
+                    _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
+                                      EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_PRESSED);
+                    try_frame();
                 }
                 break;
             case WM_MBUTTONUP:
-                {
+                if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
-                    handle_mouse_event(mouse_pos.x, mouse_pos.y,
-                                       false, false,
-                                       false, false,
-                                       false, true);
+                    _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
+                                      EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_RELEASED);
+                    try_frame();
                 }
                 break;
             default:
@@ -385,9 +323,12 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
 static void update_window()
 {
     INT dpi = GetDpiForWindow(_ctx.hwnd);
-    _ctx.scale_x = (float)dpi / USER_DEFAULT_SCREEN_DPI;
-    _ctx.scale_y = _ctx.scale_x; // Always the value on windows.
+    _ctx.framebuffer.scale_x = (float)dpi / USER_DEFAULT_SCREEN_DPI;
+    // Always the same value on windows.
+    _ctx.framebuffer.scale_y = _ctx.framebuffer.scale_x; 
 
+    // TODO: Window width/height is not really what we want. We actually
+    // want content area.
     RECT rect;
     if (GetWindowRect(_ctx.hwnd, &rect)) {
         _ctx.window_width  = rect.right  - rect.left;
@@ -395,20 +336,23 @@ static void update_window()
     }
 
     if (GetClientRect(_ctx.hwnd, &rect)) {
-        _ctx.framebuffer_width  = rect.right  - rect.left;
-        _ctx.framebuffer_height = rect.bottom - rect.top;
+        _ctx.framebuffer.w  = rect.right  - rect.left;
+        _ctx.framebuffer.h = rect.bottom - rect.top;
+        _ctx.framebuffer.pitch = _ctx.framebuffer.w;
+        _ctx.framebuffer.max_height = _ctx.framebuffer.h;
     }
 
-    if (_ctx.framebuffer) {
-        free(_ctx.framebuffer);
+    // TODO: Allocate full screen framebuffer to avoid unnecessary reallocs.
+    if (_ctx.framebuffer.pixels) {
+        free(_ctx.framebuffer.pixels);
     }
 
-    int32_t size = _ctx.framebuffer_width * _ctx.framebuffer_height;
-    _ctx.framebuffer = calloc((size_t)size, sizeof(eva_pixel));
+    int32_t size = _ctx.framebuffer.w * _ctx.framebuffer.h;
+    _ctx.framebuffer.pixels = calloc((size_t)size, sizeof(eva_pixel));
 
     printf("window %d x %d\n", _ctx.window_width, _ctx.window_height);
-    printf("framebuffer %d x %d\n", _ctx.framebuffer_width, _ctx.framebuffer_height);
-    printf("scale %.1f x %.1f\n", _ctx.scale_x, _ctx.scale_y);
+    printf("framebuffer %d x %d\n", _ctx.framebuffer.w, _ctx.framebuffer.h);
+    printf("scale %.1f x %.1f\n", _ctx.framebuffer.scale_x, _ctx.framebuffer.scale_y);
 }
 
 static void handle_paint()
@@ -419,8 +363,8 @@ static void handle_paint()
     if (GetUpdateRect(_ctx.hwnd, &draw_rect, FALSE)) {
         BITMAPINFO bmi = {0};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = _ctx.framebuffer_width;
-        bmi.bmiHeader.biHeight = -_ctx.framebuffer_height;
+        bmi.bmiHeader.biWidth = _ctx.framebuffer.w;
+        bmi.bmiHeader.biHeight = -(int32_t)_ctx.framebuffer.h;
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
@@ -444,7 +388,7 @@ static void handle_paint()
                 draw_rect.top,                    // y src
                 0,                                // scanline 0
                 draw_rect.bottom - draw_rect.top, // n scanlines
-                _ctx.framebuffer,                 // buffer
+                _ctx.framebuffer.pixels,          // buffer
                 &bmi,                             // buffer info
                 DIB_RGB_COLORS                    // raw colors
                 );
@@ -485,38 +429,55 @@ static void handle_resize()
         .type = EVA_EVENTTYPE_WINDOW,
         .window.window_width = _ctx.window_width,
         .window.window_height = _ctx.window_height,
-        .window.framebuffer_width = _ctx.framebuffer_width,
-        .window.framebuffer_height = _ctx.framebuffer_height,
-        .window.scale_x = _ctx.scale_x,
-        .window.scale_y = _ctx.scale_y,
+        .window.framebuffer_width = _ctx.framebuffer.w,
+        .window.framebuffer_height = _ctx.framebuffer.h,
+        .window.scale_x = _ctx.framebuffer.scale_x,
+        .window.scale_y = _ctx.framebuffer.scale_y,
     };
     _ctx.event_fn(&event);
 }
 
-static void handle_mouse_event(int32_t mouse_x, int32_t mouse_y,
-                               bool left_btn_pressed, bool left_btn_released,
-                               bool right_btn_pressed, bool right_btn_released,
-                               bool middle_btn_pressed, bool middle_btn_released)
+static void try_frame()
 {
-    eva_mouse_event_type type = EVA_MOUSE_EVENTTYPE_MOUSE_MOVED;
-    if (left_btn_pressed || right_btn_pressed || middle_btn_pressed) {
-        type = EVA_MOUSE_EVENTTYPE_MOUSE_PRESSED;
+    if (_ctx.frame_requested) {
+        if (_ctx.frame_fn) {
+            _ctx.frame_fn(&_ctx.framebuffer);
+        }
+
+        InvalidateRect(_ctx.hwnd, NULL, FALSE);
+        UpdateWindow(_ctx.hwnd); // Force WM_PAINT immediately
     }
-    else if (left_btn_released || right_btn_released || middle_btn_released) {
-        type = EVA_MOUSE_EVENTTYPE_MOUSE_RELEASED;
+}
+
+static bool utf8_to_utf16(const char* src, wchar_t* dst, int dst_num_bytes)
+{
+    assert(src && dst && (dst_num_bytes > 1));
+    memset(dst, 0, dst_num_bytes);
+
+    int dst_chars = dst_num_bytes / sizeof(wchar_t);
+    int dst_needed = MultiByteToWideChar(CP_UTF8, 0, src, -1, 0, 0);
+    if ((dst_needed > 0) && (dst_needed < dst_chars)) {
+        MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dst_chars);
+        return true;
     }
 
-    eva_event e = {
-        .type = EVA_EVENTTYPE_MOUSE,
-        .mouse.type = type,
-        .mouse.mouse_x = mouse_x,
-        .mouse.mouse_y = mouse_y,
-        .mouse.left_btn_pressed    = left_btn_pressed,
-        .mouse.left_btn_released   = left_btn_released,
-        .mouse.right_btn_pressed   = right_btn_pressed,
-        .mouse.right_btn_released  = right_btn_released,
-        .mouse.middle_btn_pressed  = middle_btn_pressed,
-        .mouse.middle_btn_released = middle_btn_released,
-    };
-    _ctx.event_fn(&e);
+    return false;
 }
+
+static bool utf16_to_utf8(const wchar_t* src, char* dst, int dst_num_bytes)
+{
+    assert(src && dst && (dst_num_bytes > 1));
+    memset(dst, 0, dst_num_bytes);
+
+    int32_t size = WideCharToMultiByte(
+            CP_UTF8,      // Going from UTF16 -> UTF8
+            0,            // dwFlags must be 0 when using CP_UTF8
+            src,          // UTF16 input data
+            -1,           // Input len. -1 = use null terminator for len
+            dst,          // Output buffer
+            dst_num_bytes,// Output buffer capacity 
+            NULL, NULL);  // Always NULL for CP_UTF8
+
+    return size != 0;
+}
+

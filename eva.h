@@ -247,6 +247,7 @@ void eva_run(const char     *window_title,
  */
 void eva_request_frame(void);
 
+// TODO: Formalizae the idea of content/client area vs window area
 uint32_t eva_get_window_width(void);
 uint32_t eva_get_window_height(void);
 
@@ -308,6 +309,7 @@ void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn);
  */
 void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn);
 
+// TODO: Remove eva_rect
 eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);
 bool eva_rect_empty(const eva_rect *a);
 
