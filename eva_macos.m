@@ -162,10 +162,6 @@ static void update_window(void)
     _ctx.framebuffer.scale_y = (float)(backing_bounds.size.height /
                                        content_bounds.size.height);
 
-    // TODO: Optimization - Don't nuke the framebuffer if the window is getting
-    // smaller. Rather just adjust the width, height and pitch (bytes per row).
-    // Ditto for the MTL textures below - just adjust the region they render
-    // from in drawInMTKView
     uint32_t capacity = _ctx.framebuffer.pitch * _ctx.framebuffer.max_height;
     if (capacity == 0 ||
         _ctx.framebuffer.w > _ctx.framebuffer.pitch ||

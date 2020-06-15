@@ -338,65 +338,84 @@ static void update_window()
     if (GetClientRect(_ctx.hwnd, &rect)) {
         _ctx.framebuffer.w  = rect.right  - rect.left;
         _ctx.framebuffer.h = rect.bottom - rect.top;
-        _ctx.framebuffer.pitch = _ctx.framebuffer.w;
-        _ctx.framebuffer.max_height = _ctx.framebuffer.h;
     }
 
-    // TODO: Allocate full screen framebuffer to avoid unnecessary reallocs.
-    if (_ctx.framebuffer.pixels) {
-        free(_ctx.framebuffer.pixels);
-    }
+    uint32_t capacity = _ctx.framebuffer.pitch * _ctx.framebuffer.max_height;
+    if (capacity == 0 ||
+        _ctx.framebuffer.w > _ctx.framebuffer.pitch ||
+        _ctx.framebuffer.h > _ctx.framebuffer.max_height) {
 
-    int32_t size = _ctx.framebuffer.w * _ctx.framebuffer.h;
-    _ctx.framebuffer.pixels = calloc((size_t)size, sizeof(eva_pixel));
+        if (_ctx.framebuffer.pixels) {
+            free(_ctx.framebuffer.pixels);
+        }
+
+        // Make the framebuffer large enough to hold pixels for the entire
+        // screen. This makes it unnecessary to reallocate the framebuffer
+        // when the window is resized. It should only need to be resized when
+        // moving to a higher resolution monitor.
+        HMONITOR monitor = MonitorFromWindow(_ctx.hwnd, MONITOR_DEFAULTTOPRIMARY);
+
+        // Get the monitors size in pixels.
+        MONITORINFO mi = {
+            .cbSize = sizeof(mi)
+        };
+        GetMonitorInfoW(monitor, &mi);
+
+        // According to win32 docs these may be negative. The docs don't explain
+        // how or when unfortunately.
+        uint32_t monitor_w = max(0, mi.rcMonitor.right - mi.rcMonitor.left);
+        uint32_t monitor_h = max(0, mi.rcMonitor.bottom - mi.rcMonitor.top);
+
+        _ctx.framebuffer.pitch = max(_ctx.framebuffer.w, monitor_w);
+        _ctx.framebuffer.max_height = max(_ctx.framebuffer.h, monitor_h);
+
+        int32_t size = _ctx.framebuffer.pitch * _ctx.framebuffer.max_height;
+        _ctx.framebuffer.pixels = calloc((size_t)size, sizeof(eva_pixel));
+    }
 
     printf("window %d x %d\n", _ctx.window_width, _ctx.window_height);
     printf("framebuffer %d x %d\n", _ctx.framebuffer.w, _ctx.framebuffer.h);
+    printf("framebuffer max %d x %d\n", _ctx.framebuffer.pitch, _ctx.framebuffer.max_height);
     printf("scale %.1f x %.1f\n", _ctx.framebuffer.scale_x, _ctx.framebuffer.scale_y);
 }
 
 static void handle_paint()
 {
-    uint64_t start = eva_time_now();
+    //uint64_t start = eva_time_now();
 
-    RECT draw_rect;
-    if (GetUpdateRect(_ctx.hwnd, &draw_rect, FALSE)) {
-        BITMAPINFO bmi = {0};
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = _ctx.framebuffer.w;
-        bmi.bmiHeader.biHeight = -(int32_t)_ctx.framebuffer.h;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB;
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = _ctx.framebuffer.pitch;
+    bmi.bmiHeader.biHeight = -(int32_t)_ctx.framebuffer.max_height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
 
-        // Get a paint DC for current window.
-        // Paint DC contains the right scaling to match
-        // the monitor DPI where the window is located.
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(_ctx.hwnd, &ps);
+    // Get a paint DC for current window.
+    // Paint DC contains the right scaling to match
+    // the monitor DPI where the window is located.
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(_ctx.hwnd, &ps);
 
-        // Draw into the region defined by draw rect.
-        // This region should always map 1-to-1 with the 
-        // region in the framebuffer
-        SetDIBitsToDevice(
-                hdc,
-                draw_rect.left,                   // x dest
-                draw_rect.top,                    // y dest
-                draw_rect.right - draw_rect.left, // width
-                draw_rect.bottom - draw_rect.top, // height
-                draw_rect.left,                   // x src
-                draw_rect.top,                    // y src
-                0,                                // scanline 0
-                draw_rect.bottom - draw_rect.top, // n scanlines
-                _ctx.framebuffer.pixels,          // buffer
-                &bmi,                             // buffer info
-                DIB_RGB_COLORS                    // raw colors
-                );
+    // Draw the framebuffer to screen
+    SetDIBitsToDevice(
+            hdc,
+            0,                   // x dest
+            0,                   // y dest
+            _ctx.framebuffer.w, // width
+            _ctx.framebuffer.h, // height
+            0,                   // x src
+            0,                    // y src
+            0,                                // scanline 0
+            _ctx.framebuffer.h, // n scanlines
+            _ctx.framebuffer.pixels,          // buffer
+            &bmi,                             // buffer info
+            DIB_RGB_COLORS                    // raw colors
+            );
 
-        EndPaint(_ctx.hwnd, &ps);
-    }
+    EndPaint(_ctx.hwnd, &ps);
 
-    printf("handle_paint - %.1f ms\n", eva_time_since_ms(start));
+    //printf("handle_paint - %.1f ms\n", eva_time_since_ms(start));
 }
 
 static void handle_close()
