@@ -379,6 +379,7 @@ static void update_window(void)
     if (_ctx.mouse_btn_fn) {
         NSPoint location = [event locationInWindow];
         NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_LEFT, EVA_MOUSE_PRESSED);
@@ -392,6 +393,7 @@ static void update_window(void)
     if (_ctx.mouse_btn_fn) {
         NSPoint location = [event locationInWindow];
         NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_LEFT, EVA_MOUSE_RELEASED);
@@ -405,6 +407,7 @@ static void update_window(void)
     if (_ctx.mouse_btn_fn) {
         NSPoint location = [event locationInWindow];
         NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_PRESSED);
@@ -418,6 +421,7 @@ static void update_window(void)
     if (_ctx.mouse_btn_fn) {
         NSPoint location = [event locationInWindow];
         NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_RELEASED);
@@ -431,6 +435,7 @@ static void update_window(void)
     if (_ctx.mouse_btn_fn) {
         NSPoint location = [event locationInWindow];
         NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_PRESSED);
@@ -444,6 +449,7 @@ static void update_window(void)
     if (_ctx.mouse_btn_fn) {
         NSPoint location = [event locationInWindow];
         NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
                           EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_RELEASED);
@@ -454,9 +460,10 @@ static void update_window(void)
 }
 - (void)mouseMoved:(NSEvent *)event
 {
-    NSPoint location = [event locationInWindow];
-    NSPoint mouse_pos = [self convertPoint:location fromView:nil];
     if (_ctx.mouse_moved_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_moved_fn((int32_t)round(mouse_pos.x),
                             (int32_t)round(mouse_pos.y));
         if (try_frame()) {
