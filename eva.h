@@ -18,7 +18,6 @@ typedef enum eva_event_type {
     EVA_EVENTTYPE_WINDOW,
     EVA_EVENTTYPE_KB,
     EVA_EVENTTYPE_REDRAWFRAME,
-    EVA_EVENTTYPE_QUITREQUESTED,
 } eva_event_type;
 
 typedef enum eva_kb_event_type {
@@ -138,17 +137,23 @@ typedef void(*eva_init_fn)(void);
 typedef void(*eva_cleanup_fn)(void);
 
 /**
- * @brief The function pointer type for the quit requested callback.
+ * @brief The function pointer type for the cancel quit callback.
  *
- * This is the function pointer type for the quit requested callback. It has
+ * This is the function pointer type for the cancel quit callback. It has
  * the following signature:
  * @code
  * bool cancel_quit(void);
  * @endcode
  *
- * @return True to continue the quit sequence, false otherwise.
+ * If set this function will be called when the application wants to close. It
+ * provides an opportunity to cancel the quit sequence. Typically this would be
+ * used to provide the user to save unsaved work or show a quit confirmation
+ * dialog.
  *
- * @see @ref eva_set_quit_requested_fn
+ * @return True to continue the quit sequence, false otherwise to cancel the
+ * quit sequence.
+ *
+ * @see @ref eva_set_cancel_quit_fn
  *
  * @ingroup shutdown
  */

@@ -425,12 +425,9 @@ static void handle_close()
     if (!_ctx.quit_ordered) {
         // if window should be closed and event handling is enabled, give user
         // code a chance to intervene via eva_cancel_quit()
-        _ctx.quit_requested = true;
-
-        eva_event quit_event = { 
-            .type = EVA_EVENTTYPE_QUITREQUESTED
-        };
-        _ctx.event_fn(&quit_event);
+        if (_ctx.cancel_quit_fn) {
+            _ctx.quit_requested = !_ctx.cancel_quit_fn();
+        }
         // user code hasn't intervened, quit the app
         if (_ctx.quit_requested) {
             _ctx.quit_ordered = true;

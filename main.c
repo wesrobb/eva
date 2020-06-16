@@ -46,9 +46,6 @@ void event(eva_event *e)
         delta_x += 10;
         puts("Received eva keyboard event");
         break;
-    case EVA_EVENTTYPE_QUITREQUESTED:
-        puts("Received eva quit requested");
-        break;
     case EVA_EVENTTYPE_REDRAWFRAME:
         puts("Full frame requested");
         full_frame = true;
