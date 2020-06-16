@@ -481,7 +481,9 @@ static void update_window(void)
 }
 - (void)scrollWheel:(NSEvent *)event
 {
-    try_frame();
+    if (try_frame()) {
+        [self draw];
+    }
 }
 - (void)keyDown:(NSEvent *)event
 {
@@ -495,11 +497,15 @@ static void update_window(void)
 
     _ctx.event_fn(&e);
 
-    try_frame();
+    if (try_frame()) {
+        [self draw];
+    }
 }
 - (void)keyUp:(NSEvent *)event
 {
-    try_frame();
+    if (try_frame()) {
+        [self draw];
+    }
 }
 - (void)flagsChanged:(NSEvent *)event
 {
