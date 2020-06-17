@@ -7,6 +7,9 @@
 
 static bool try_frame();
 static bool create_shaders(void);
+static eva_key translate_key(uint32_t key);
+static eva_mod_flags translate_mod_flags(NSUInteger flags);
+static void init_key_tables(void);
 
 @interface eva_app_delegate : NSObject <NSApplicationDelegate>
 @end
@@ -37,6 +40,10 @@ typedef struct eva_ctx {
 
     eva_mouse_moved_fn mouse_moved_fn;
     eva_mouse_btn_fn   mouse_btn_fn;
+
+    eva_key_fn key_fn;
+    int16_t    keycodes[256];
+    int16_t    scancodes[EVA_KEY_LAST + 1];
 
     id<MTLLibrary>              mtl_library;
     id<MTLDevice>               mtl_device;
@@ -146,6 +153,11 @@ void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn)
     _ctx.mouse_btn_fn = mouse_btn_fn;
 }
 
+void eva_set_key_fn(eva_key_fn key_fn)
+{
+    _ctx.key_fn = key_fn;
+}
+
 static void update_window(void)
 {
     NSRect content_bounds = _app_window.contentView.bounds;
@@ -226,6 +238,8 @@ static void update_window(void)
     _app_window.title = [NSString stringWithUTF8String:_ctx.window_title];
     _app_window.acceptsMouseMovedEvents = YES;
     _app_window.restorable              = YES;
+
+    init_key_tables();
 
     // Setup window delegate
     _app_window_delegate = [[eva_window_delegate alloc] init];
@@ -382,7 +396,7 @@ static void update_window(void)
         mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
-                          EVA_MOUSE_BTN_LEFT, EVA_MOUSE_PRESSED);
+                          EVA_MOUSE_BTN_LEFT, EVA_INPUT_PRESSED);
         if (try_frame()) {
             [self draw];
         }
@@ -396,7 +410,7 @@ static void update_window(void)
         mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
-                          EVA_MOUSE_BTN_LEFT, EVA_MOUSE_RELEASED);
+                          EVA_MOUSE_BTN_LEFT, EVA_INPUT_RELEASED);
         if (try_frame()) {
             [self draw];
         }
@@ -410,7 +424,7 @@ static void update_window(void)
         mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
-                          EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_PRESSED);
+                          EVA_MOUSE_BTN_RIGHT, EVA_INPUT_PRESSED);
         if (try_frame()) {
             [self draw];
         }
@@ -424,7 +438,7 @@ static void update_window(void)
         mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
-                          EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_RELEASED);
+                          EVA_MOUSE_BTN_RIGHT, EVA_INPUT_RELEASED);
         if (try_frame()) {
             [self draw];
         }
@@ -438,7 +452,7 @@ static void update_window(void)
         mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
-                          EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_PRESSED);
+                          EVA_MOUSE_BTN_MIDDLE, EVA_INPUT_PRESSED);
         if (try_frame()) {
             [self draw];
         }
@@ -452,7 +466,7 @@ static void update_window(void)
         mouse_pos = [self convertPointToBacking:mouse_pos];
         _ctx.mouse_btn_fn((int32_t)round(mouse_pos.x),
                           (int32_t)round(mouse_pos.y),
-                          EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_RELEASED);
+                          EVA_MOUSE_BTN_MIDDLE, EVA_INPUT_RELEASED);
         if (try_frame()) {
             [self draw];
         }
@@ -487,15 +501,15 @@ static void update_window(void)
 }
 - (void)keyDown:(NSEvent *)event
 {
-    NSString *characters = event.charactersIgnoringModifiers;
+    eva_key key = translate_key([event keyCode]);
+    eva_mod_flags mods = translate_mod_flags([event modifierFlags]);
 
-    eva_event e = {
-        .type = EVA_EVENTTYPE_KB,
-        .kb.type = EVA_KB_EVENTTYPE_KEYDOWN,
-        .kb.utf8_codepoint = characters.UTF8String,
-    };
+    if (_ctx.key_fn) {
+        _ctx.key_fn(key, EVA_INPUT_PRESSED, mods);
+    }
 
-    _ctx.event_fn(&e);
+    // Send the event onward for text handling.
+    [self interpretKeyEvents:@[event]];
 
     if (try_frame()) {
         [self draw];
@@ -763,6 +777,163 @@ static bool create_shaders(void)
     } else {
         _ctx.fail_fn(0, "Failed to create metal shader library");
         return false;
+    }
+}
+
+// Translates a macOS keycode to an eva keycode. Taken from GLFW
+static eva_key translate_key(uint32_t key)
+{
+    if (key >= sizeof(_ctx.keycodes) / sizeof(_ctx.keycodes[0]))
+        return EVA_KEY_UNKNOWN;
+
+    return _ctx.keycodes[key];
+}
+
+// Translates macOS key modifiers into eva ones. Taken from GLFW
+static eva_mod_flags translate_mod_flags(NSUInteger flags)
+{
+    eva_mod_flags mods = 0;
+
+    if (flags & NSEventModifierFlagShift)
+        mods |= EVA_MOD_SHIFT;
+    if (flags & NSEventModifierFlagControl)
+        mods |= EVA_MOD_CONTROL;
+    if (flags & NSEventModifierFlagOption)
+        mods |= EVA_MOD_ALT;
+    if (flags & NSEventModifierFlagCommand)
+        mods |= EVA_MOD_SUPER;
+    if (flags & NSEventModifierFlagCapsLock)
+        mods |= EVA_MOD_CAPS_LOCK;
+
+    return mods;
+}
+
+// Create key code translation tables. Taken from GLFW.
+static void init_key_tables(void)
+{
+    memset(_ctx.keycodes, -1, sizeof(_ctx.keycodes));
+    memset(_ctx.scancodes, -1, sizeof(_ctx.scancodes));
+
+    _ctx.keycodes[0x1D] = EVA_KEY_0;
+    _ctx.keycodes[0x12] = EVA_KEY_1;
+    _ctx.keycodes[0x13] = EVA_KEY_2;
+    _ctx.keycodes[0x14] = EVA_KEY_3;
+    _ctx.keycodes[0x15] = EVA_KEY_4;
+    _ctx.keycodes[0x17] = EVA_KEY_5;
+    _ctx.keycodes[0x16] = EVA_KEY_6;
+    _ctx.keycodes[0x1A] = EVA_KEY_7;
+    _ctx.keycodes[0x1C] = EVA_KEY_8;
+    _ctx.keycodes[0x19] = EVA_KEY_9;
+    _ctx.keycodes[0x00] = EVA_KEY_A;
+    _ctx.keycodes[0x0B] = EVA_KEY_B;
+    _ctx.keycodes[0x08] = EVA_KEY_C;
+    _ctx.keycodes[0x02] = EVA_KEY_D;
+    _ctx.keycodes[0x0E] = EVA_KEY_E;
+    _ctx.keycodes[0x03] = EVA_KEY_F;
+    _ctx.keycodes[0x05] = EVA_KEY_G;
+    _ctx.keycodes[0x04] = EVA_KEY_H;
+    _ctx.keycodes[0x22] = EVA_KEY_I;
+    _ctx.keycodes[0x26] = EVA_KEY_J;
+    _ctx.keycodes[0x28] = EVA_KEY_K;
+    _ctx.keycodes[0x25] = EVA_KEY_L;
+    _ctx.keycodes[0x2E] = EVA_KEY_M;
+    _ctx.keycodes[0x2D] = EVA_KEY_N;
+    _ctx.keycodes[0x1F] = EVA_KEY_O;
+    _ctx.keycodes[0x23] = EVA_KEY_P;
+    _ctx.keycodes[0x0C] = EVA_KEY_Q;
+    _ctx.keycodes[0x0F] = EVA_KEY_R;
+    _ctx.keycodes[0x01] = EVA_KEY_S;
+    _ctx.keycodes[0x11] = EVA_KEY_T;
+    _ctx.keycodes[0x20] = EVA_KEY_U;
+    _ctx.keycodes[0x09] = EVA_KEY_V;
+    _ctx.keycodes[0x0D] = EVA_KEY_W;
+    _ctx.keycodes[0x07] = EVA_KEY_X;
+    _ctx.keycodes[0x10] = EVA_KEY_Y;
+    _ctx.keycodes[0x06] = EVA_KEY_Z;
+
+    _ctx.keycodes[0x27] = EVA_KEY_APOSTROPHE;
+    _ctx.keycodes[0x2A] = EVA_KEY_BACKSLASH;
+    _ctx.keycodes[0x2B] = EVA_KEY_COMMA;
+    _ctx.keycodes[0x18] = EVA_KEY_EQUAL;
+    _ctx.keycodes[0x32] = EVA_KEY_GRAVE_ACCENT;
+    _ctx.keycodes[0x21] = EVA_KEY_LEFT_BRACKET;
+    _ctx.keycodes[0x1B] = EVA_KEY_MINUS;
+    _ctx.keycodes[0x2F] = EVA_KEY_PERIOD;
+    _ctx.keycodes[0x1E] = EVA_KEY_RIGHT_BRACKET;
+    _ctx.keycodes[0x29] = EVA_KEY_SEMICOLON;
+    _ctx.keycodes[0x2C] = EVA_KEY_SLASH;
+    _ctx.keycodes[0x0A] = EVA_KEY_WORLD_1;
+
+    _ctx.keycodes[0x33] = EVA_KEY_BACKSPACE;
+    _ctx.keycodes[0x39] = EVA_KEY_CAPS_LOCK;
+    _ctx.keycodes[0x75] = EVA_KEY_DELETE;
+    _ctx.keycodes[0x7D] = EVA_KEY_DOWN;
+    _ctx.keycodes[0x77] = EVA_KEY_END;
+    _ctx.keycodes[0x24] = EVA_KEY_ENTER;
+    _ctx.keycodes[0x35] = EVA_KEY_ESCAPE;
+    _ctx.keycodes[0x7A] = EVA_KEY_F1;
+    _ctx.keycodes[0x78] = EVA_KEY_F2;
+    _ctx.keycodes[0x63] = EVA_KEY_F3;
+    _ctx.keycodes[0x76] = EVA_KEY_F4;
+    _ctx.keycodes[0x60] = EVA_KEY_F5;
+    _ctx.keycodes[0x61] = EVA_KEY_F6;
+    _ctx.keycodes[0x62] = EVA_KEY_F7;
+    _ctx.keycodes[0x64] = EVA_KEY_F8;
+    _ctx.keycodes[0x65] = EVA_KEY_F9;
+    _ctx.keycodes[0x6D] = EVA_KEY_F10;
+    _ctx.keycodes[0x67] = EVA_KEY_F11;
+    _ctx.keycodes[0x6F] = EVA_KEY_F12;
+    _ctx.keycodes[0x69] = EVA_KEY_F13;
+    _ctx.keycodes[0x6B] = EVA_KEY_F14;
+    _ctx.keycodes[0x71] = EVA_KEY_F15;
+    _ctx.keycodes[0x6A] = EVA_KEY_F16;
+    _ctx.keycodes[0x40] = EVA_KEY_F17;
+    _ctx.keycodes[0x4F] = EVA_KEY_F18;
+    _ctx.keycodes[0x50] = EVA_KEY_F19;
+    _ctx.keycodes[0x5A] = EVA_KEY_F20;
+    _ctx.keycodes[0x73] = EVA_KEY_HOME;
+    _ctx.keycodes[0x72] = EVA_KEY_INSERT;
+    _ctx.keycodes[0x7B] = EVA_KEY_LEFT;
+    _ctx.keycodes[0x3A] = EVA_KEY_LEFT_ALT;
+    _ctx.keycodes[0x3B] = EVA_KEY_LEFT_CONTROL;
+    _ctx.keycodes[0x38] = EVA_KEY_LEFT_SHIFT;
+    _ctx.keycodes[0x37] = EVA_KEY_LEFT_SUPER;
+    _ctx.keycodes[0x6E] = EVA_KEY_MENU;
+    _ctx.keycodes[0x47] = EVA_KEY_NUM_LOCK;
+    _ctx.keycodes[0x79] = EVA_KEY_PAGE_DOWN;
+    _ctx.keycodes[0x74] = EVA_KEY_PAGE_UP;
+    _ctx.keycodes[0x7C] = EVA_KEY_RIGHT;
+    _ctx.keycodes[0x3D] = EVA_KEY_RIGHT_ALT;
+    _ctx.keycodes[0x3E] = EVA_KEY_RIGHT_CONTROL;
+    _ctx.keycodes[0x3C] = EVA_KEY_RIGHT_SHIFT;
+    _ctx.keycodes[0x36] = EVA_KEY_RIGHT_SUPER;
+    _ctx.keycodes[0x31] = EVA_KEY_SPACE;
+    _ctx.keycodes[0x30] = EVA_KEY_TAB;
+    _ctx.keycodes[0x7E] = EVA_KEY_UP;
+
+    _ctx.keycodes[0x52] = EVA_KEY_KP_0;
+    _ctx.keycodes[0x53] = EVA_KEY_KP_1;
+    _ctx.keycodes[0x54] = EVA_KEY_KP_2;
+    _ctx.keycodes[0x55] = EVA_KEY_KP_3;
+    _ctx.keycodes[0x56] = EVA_KEY_KP_4;
+    _ctx.keycodes[0x57] = EVA_KEY_KP_5;
+    _ctx.keycodes[0x58] = EVA_KEY_KP_6;
+    _ctx.keycodes[0x59] = EVA_KEY_KP_7;
+    _ctx.keycodes[0x5B] = EVA_KEY_KP_8;
+    _ctx.keycodes[0x5C] = EVA_KEY_KP_9;
+    _ctx.keycodes[0x45] = EVA_KEY_KP_ADD;
+    _ctx.keycodes[0x41] = EVA_KEY_KP_DECIMAL;
+    _ctx.keycodes[0x4B] = EVA_KEY_KP_DIVIDE;
+    _ctx.keycodes[0x4C] = EVA_KEY_KP_ENTER;
+    _ctx.keycodes[0x51] = EVA_KEY_KP_EQUAL;
+    _ctx.keycodes[0x43] = EVA_KEY_KP_MULTIPLY;
+    _ctx.keycodes[0x4E] = EVA_KEY_KP_SUBTRACT;
+
+    for (int16_t scancode = 0;  scancode < 256;  scancode++)
+    {
+        // Store the reverse translation for faster key name lookup
+        if (_ctx.keycodes[scancode] >= 0)
+            _ctx.scancodes[_ctx.keycodes[scancode]] = scancode;
     }
 }
 

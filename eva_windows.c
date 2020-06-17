@@ -267,7 +267,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
                     _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
-                                      EVA_MOUSE_BTN_LEFT, EVA_MOUSE_PRESSED);
+                                      EVA_MOUSE_BTN_LEFT, EVA_INPUT_PRESSED);
                     try_frame();
                 }
                 break;
@@ -275,7 +275,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
                     _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
-                                      EVA_MOUSE_BTN_LEFT, EVA_MOUSE_RELEASED);
+                                      EVA_MOUSE_BTN_LEFT, EVA_INPUT_RELEASED);
                     try_frame();
                 }
                 break;
@@ -283,7 +283,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
                     _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
-                                      EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_PRESSED);
+                                      EVA_MOUSE_BTN_RIGHT, EVA_INPUT_PRESSED);
                     try_frame();
                 }
                 break;
@@ -291,7 +291,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
                     _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
-                                      EVA_MOUSE_BTN_RIGHT, EVA_MOUSE_RELEASED);
+                                      EVA_MOUSE_BTN_RIGHT, EVA_INPUT_RELEASED);
                     try_frame();
                 }
                 break;
@@ -299,7 +299,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
                     _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
-                                      EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_PRESSED);
+                                      EVA_MOUSE_BTN_MIDDLE, EVA_INPUT_PRESSED);
                     try_frame();
                 }
                 break;
@@ -307,7 +307,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 if (_ctx.mouse_btn_fn) {
                     POINTS mouse_pos = MAKEPOINTS(lParam);
                     _ctx.mouse_btn_fn(mouse_pos.x, mouse_pos.y,
-                                      EVA_MOUSE_BTN_MIDDLE, EVA_MOUSE_RELEASED);
+                                      EVA_MOUSE_BTN_MIDDLE, EVA_INPUT_RELEASED);
                     try_frame();
                 }
                 break;
