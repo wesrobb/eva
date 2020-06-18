@@ -389,6 +389,28 @@ typedef void(*eva_key_fn)(eva_key key, eva_input_action action,
                           eva_mod_flags mod);
 
 /**
+ * @brief The function pointer type for the unicode text input event callback.
+ *
+ * This is the function pointer type for the unicode text input event callback. 
+ * It has the following signature:
+ * @code
+ * void text_input(const char* utf8_text, uint32_t len, eva_mod_flags mods);
+ * @endcode
+ *
+ * @param[in] utf8_text The UTF8 encoded text that was input via key-presses or
+ * via paste.
+ * @param[in] len The length of the text in bytes.
+ * @param[in] mod The [modifier keys](/ref eva_mod_flags) that were active at
+ * the time the text input occurred.
+ *
+ * @see @ref eva_set_text_input_fn
+ *
+ * @ingroup input
+ */
+typedef void(*eva_text_input_fn)(const char *utf8_text, uint32_t len,
+                                 eva_mod_flags mod);
+
+/**
  * Start the application. This will create a window with high-dpi support
  * if possible. The provided event function is resposible for populating
  * the eva framebuffer and then requesting a draw with
@@ -479,13 +501,24 @@ void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn);
  * @brief Sets a function to be called when a key is pressed/released.
  *
  * This should be used when responding to specific key press events. See 
- * [eva_set_char_fn](@ref eva_set_char_fn) for handling text input events.
+ * [eva_set_text_input_fn](@ref eva_set_text_input_fn) for handling text input
+ * events.
  *
  * See @ref eva_key_fn
  *
  * @ingroup input
  */
 void eva_set_key_fn(eva_key_fn key_fn);
+
+/** 
+ * @brief Sets a function to be called when text is input via key presses or 
+ * pasting.
+ *
+ * See @ref eva_text_input_fn
+ *
+ * @ingroup input
+ */
+void eva_set_text_input_fn(eva_text_input_fn text_input_fn);
 
 // TODO: Remove eva_rect
 eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);

@@ -15,8 +15,9 @@ static void init_key_tables(void);
 @end
 @interface eva_window_delegate : NSObject <NSWindowDelegate>
 @end
-@interface eva_view : MTKView {
+@interface eva_view : MTKView <NSTextInputClient> {
     NSTrackingArea *trackingArea;
+    NSMutableAttributedString* markedText;
 }
 @end
 @interface eva_view_delegate : NSViewController<MTKViewDelegate>
@@ -44,6 +45,8 @@ typedef struct eva_ctx {
     eva_key_fn key_fn;
     int16_t    keycodes[256];
     int16_t    scancodes[EVA_KEY_LAST + 1];
+
+    eva_text_input_fn text_input_fn;
 
     id<MTLLibrary>              mtl_library;
     id<MTLDevice>               mtl_device;
@@ -156,6 +159,11 @@ void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn)
 void eva_set_key_fn(eva_key_fn key_fn)
 {
     _ctx.key_fn = key_fn;
+}
+
+void eva_set_text_input_fn(eva_text_input_fn text_input_fn)
+{
+    _ctx.text_input_fn = text_input_fn;
 }
 
 static void update_window(void)
@@ -339,6 +347,21 @@ static void update_window(void)
 @end
 
 @implementation eva_view
+- (instancetype)init
+{
+    [super init];
+
+    [self updateTrackingAreas];
+    markedText = [[NSMutableAttributedString alloc] init];
+
+    return self;
+}
+- (void)dealloc
+{
+    [trackingArea release];
+    [markedText release];
+    [super dealloc];
+}
 - (void)viewDidChangeBackingProperties
 {
     update_window();
@@ -357,6 +380,10 @@ static void update_window(void)
     return YES;
 }
 - (BOOL)acceptsFirstResponder
+{
+    return YES;
+}
+- (BOOL)acceptsFirstMouse:(NSEvent *)event
 {
     return YES;
 }
@@ -517,6 +544,13 @@ static void update_window(void)
 }
 - (void)keyUp:(NSEvent *)event
 {
+    eva_key key = translate_key([event keyCode]);
+    eva_mod_flags mods = translate_mod_flags([event modifierFlags]);
+
+    if (_ctx.key_fn) {
+        _ctx.key_fn(key, EVA_INPUT_RELEASED, mods);
+    }
+
     if (try_frame()) {
         [self draw];
     }
@@ -527,6 +561,87 @@ static void update_window(void)
 - (void)cursorUpdate:(NSEvent *)event
 {
 }
+- (BOOL)hasMarkedText
+{
+    return [markedText length] > 0;
+}
+
+static const NSRange kEmptyRange = { NSNotFound, 0 };
+
+- (NSRange)markedRange
+{
+    if ([markedText length] > 0)
+        return NSMakeRange(0, [markedText length] - 1);
+    else
+        return kEmptyRange;
+}
+
+- (NSRange)selectedRange
+{
+    return kEmptyRange;
+}
+
+- (void)setMarkedText:(id)string
+        selectedRange:(NSRange)selectedRange
+     replacementRange:(NSRange)replacementRange
+{
+    [markedText release];
+    if ([string isKindOfClass:[NSAttributedString class]])
+        markedText = [[NSMutableAttributedString alloc] initWithAttributedString:string];
+    else
+        markedText = [[NSMutableAttributedString alloc] initWithString:string];
+}
+
+- (void)unmarkText
+{
+    [[markedText mutableString] setString:@""];
+}
+
+- (NSArray*)validAttributesForMarkedText
+{
+    return [NSArray array];
+}
+
+- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range
+                                               actualRange:(NSRangePointer)actualRange
+{
+    return nil;
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point
+{
+    return 0;
+}
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range
+                         actualRange:(NSRangePointer)actualRange
+{
+    const NSRect frame = [self frame];
+    return NSMakeRect(frame.origin.x, frame.origin.y, 0.0, 0.0);
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange
+{
+    if (_ctx.text_input_fn) {
+        NSString* characters;
+        NSEvent* event = [NSApp currentEvent];
+        eva_mod_flags mods = translate_mod_flags([event modifierFlags]);
+
+        if ([string isKindOfClass:[NSAttributedString class]])
+            characters = [string string];
+        else
+            characters = (NSString*) string;
+
+        NSUInteger byte_len =
+            [characters lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        _ctx.text_input_fn(characters.UTF8String, (uint32_t)byte_len, mods);
+
+        if (try_frame()) {
+            [self draw];
+        }
+    }
+}
+
 @end
 @implementation eva_view_delegate
 - (void) drawInMTKView:(nonnull MTKView *) view {
