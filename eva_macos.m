@@ -111,9 +111,6 @@ void eva_run(const char     *window_title,
 void eva_request_frame(void)
 {
     _ctx.request_frame = true;
-    // Using draw over setNeedsDisplay makes for a 
-    // far less laggy UI.
-    [_app_view draw];
 }
 
 uint32_t eva_get_window_width(void)
