@@ -33,7 +33,6 @@ typedef struct eva_ctx {
     bool        quit_ordered;
 
     eva_init_fn        init_fn;
-    eva_event_fn       event_fn;
     eva_frame_fn       frame_fn;
     eva_cleanup_fn     cleanup_fn;
     eva_cancel_quit_fn cancel_quit_fn;
@@ -47,6 +46,8 @@ typedef struct eva_ctx {
     int16_t    scancodes[EVA_KEY_LAST + 1];
 
     eva_text_input_fn text_input_fn;
+
+    eva_window_resize_fn window_resize_fn;
 
     id<MTLLibrary>              mtl_library;
     id<MTLDevice>               mtl_device;
@@ -89,14 +90,12 @@ static eva_window_delegate *_app_window_delegate;
 static eva_view            *_app_view;
 
 void eva_run(const char     *window_title,
-             eva_event_fn    event_fn,
              eva_frame_fn    frame_fn,
              eva_fail_fn     fail_fn)
 {
     _ctx.start_time = eva_time_now();
 
     _ctx.window_title = window_title;
-    _ctx.event_fn     = event_fn;
     _ctx.frame_fn     = frame_fn;
     _ctx.fail_fn      = fail_fn;
 
@@ -161,6 +160,11 @@ void eva_set_key_fn(eva_key_fn key_fn)
 void eva_set_text_input_fn(eva_text_input_fn text_input_fn)
 {
     _ctx.text_input_fn = text_input_fn;
+}
+
+void eva_set_window_resize_fn(eva_window_resize_fn window_resize_fn)
+{
+    _ctx.window_resize_fn = window_resize_fn;
 }
 
 static void update_window(void)
@@ -320,16 +324,11 @@ static void update_window(void)
 {
     update_window();
 
-    eva_event event = {
-        .type                      = EVA_EVENTTYPE_WINDOW,
-        .window.window_width       = _ctx.window_width,
-        .window.window_height      = _ctx.window_height,
-        .window.framebuffer_width  = _ctx.framebuffer.w,
-        .window.framebuffer_height = _ctx.framebuffer.h,
-        .window.scale_x            = _ctx.framebuffer.scale_x,
-        .window.scale_y            = _ctx.framebuffer.scale_y,
-    };
-    _ctx.event_fn(&event);
+    _ctx.window_resize_fn(_ctx.framebuffer.w, _ctx.framebuffer.h);
+
+    if (try_frame()) {
+        [_app_view draw];
+    }
 }
 
 - (void)windowDidMiniaturize:(NSNotification *)notification
@@ -363,10 +362,11 @@ static void update_window(void)
 {
     update_window();
 
-    eva_event event = {
-        .type = EVA_EVENTTYPE_REDRAWFRAME,
-    };
-    _ctx.event_fn(&event);
+    _ctx.window_resize_fn(_ctx.framebuffer.w, _ctx.framebuffer.h);
+
+    if (try_frame()) {
+        [self draw];
+    }
 }
 - (BOOL)isOpaque
 {

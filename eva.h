@@ -14,29 +14,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef enum eva_event_type {
-    EVA_EVENTTYPE_WINDOW,
-    EVA_EVENTTYPE_REDRAWFRAME,
-} eva_event_type;
-
-typedef struct eva_window_event {
-    uint32_t window_width;
-    uint32_t window_height;
-
-    uint32_t framebuffer_width;
-    uint32_t framebuffer_height;
-
-    float scale_x;
-    float scale_y;
-} eva_window_event;
-
-typedef struct eva_event {
-    eva_event_type type;
-    union {
-        eva_window_event window;
-    };
-} eva_event;
-
 typedef struct eva_pixel {
     uint8_t b, g, r, a;
 } eva_pixel;
@@ -298,7 +275,6 @@ typedef void(*eva_cleanup_fn)(void);
  */
 typedef bool(*eva_cancel_quit_fn)(void);
 
-typedef void(*eva_event_fn)(eva_event *event);
 typedef void(*eva_fail_fn)(int32_t error_code, const char *error_string);
 
 /**
@@ -411,13 +387,31 @@ typedef void(*eva_text_input_fn)(const char *utf8_text, uint32_t len,
                                  eva_mod_flags mod);
 
 /**
+ * @brief The function pointer type for the window resize callback.
+ *
+ * This is the function pointer type for the window resize callback.  It has the
+ * following signature:
+ * @code
+ * void window_resize(uint32_t framebuffer_width, uint32_t framebuffer_height);
+ * @endcode
+ *
+ * @param[in] framebuffer_width The new width of the framebuffer.
+ * @param[in] framebuffer_height The new height of the framebuffer.
+ *
+ * @see @ref eva_set_window_resize_fn
+ *
+ * @ingroup window
+ */
+typedef void(*eva_window_resize_fn)(uint32_t framebuffer_width, 
+                                    uint32_t framebuffer_height);
+
+/**
  * Start the application. This will create a window with high-dpi support
  * if possible. The provided event function is resposible for populating
  * the eva framebuffer and then requesting a draw with
  * eva_request_frame().
  */
 void eva_run(const char     *window_title,
-             eva_event_fn    event_fn,
              eva_frame_fn    frame_fn,
              eva_fail_fn     fail_fn);
 
@@ -519,6 +513,18 @@ void eva_set_key_fn(eva_key_fn key_fn);
  * @ingroup input
  */
 void eva_set_text_input_fn(eva_text_input_fn text_input_fn);
+
+/** 
+ * @brief Sets a function to be called when the window is resized.
+ *
+ * Typically an application would simply request a new frame so that the
+ * application can be drawn at the new size.
+ *
+ * See @ref eva_window_resize_fn
+ *
+ * @ingroup window
+ */
+void eva_set_window_resize_fn(eva_window_resize_fn window_resize_fn);
 
 // TODO: Remove eva_rect
 eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);
