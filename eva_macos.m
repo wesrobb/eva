@@ -642,7 +642,7 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
 @end
 @implementation eva_view_delegate
 - (void) drawInMTKView:(nonnull MTKView *) view {
-    uint64_t start = eva_time_now();
+    //uint64_t start = eva_time_now();
 
     // Wait to ensure only MaxBuffersInFlight number of frames are getting proccessed
     // by any stage in the Metal pipeline (App, Metal, Drivers, GPU, etc)
@@ -715,7 +715,7 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
     // Finalize rendering here & push the command buffer to the GPU
     [cmd_buf commit];
 
-    printf("drawRect %.1fms\n", eva_time_since_ms(start));
+    //printf("drawRect %.1fms\n", eva_time_since_ms(start));
 }
 - (void) mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size {
 	(void)view;
