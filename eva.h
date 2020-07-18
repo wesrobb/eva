@@ -18,10 +18,6 @@ typedef struct eva_pixel {
     uint8_t b, g, r, a;
 } eva_pixel;
 
-typedef struct eva_rect {
-    int32_t x, y, w, h;
-} eva_rect;
-
 typedef struct eva_framebuffer {
     uint32_t w, h;
 
@@ -525,10 +521,6 @@ void eva_set_text_input_fn(eva_text_input_fn text_input_fn);
  * @ingroup window
  */
 void eva_set_window_resize_fn(eva_window_resize_fn window_resize_fn);
-
-// TODO: Remove eva_rect
-eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b);
-bool eva_rect_empty(const eva_rect *a);
 
 /**
  * Initialize the time subsystem.

@@ -764,31 +764,6 @@ float eva_time_since_ms(uint64_t start)
     return eva_time_elapsed_ms(start, eva_time_now());
 }
 
-#define eva_min(a, b) (((a) < (b)) ? (a) : (b))
-#define eva_max(a, b) (((a) > (b)) ? (a) : (b))
-
-eva_rect eva_rect_union(const eva_rect *a, const eva_rect *b)
-{
-    eva_rect result;
-
-    result.x = eva_min(a->x, b->x);
-    result.y = eva_min(a->y, b->y);
-    result.w = eva_max(a->x + a->w, b->x + b->w) - result.x;
-    result.h = eva_max(a->y + a->h, b->y + b->h) - result.y;
-
-    return result;
-}
-#undef eva_min
-#undef eva_max
-
-bool eva_rect_empty(const eva_rect *a)
-{
-    return a->x == 0 &&
-           a->y == 0 &&
-           a->w == 0 &&
-           a->h == 0;
-}
-
 static bool try_frame()
 {
     if (_ctx.request_frame) {
