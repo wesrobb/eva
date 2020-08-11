@@ -39,7 +39,6 @@ typedef struct eva_ctx {
     eva_fail_fn        fail_fn;
 
     eva_mouse_moved_fn   mouse_moved_fn;
-    eva_mouse_dragged_fn mouse_dragged_fn;
     eva_mouse_btn_fn     mouse_btn_fn;
 
     eva_scroll_fn   scroll_fn;
@@ -148,11 +147,6 @@ void eva_set_cancel_quit_fn(eva_cancel_quit_fn cancel_quit_fn)
 void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn)
 {
     _ctx.mouse_moved_fn = mouse_moved_fn;
-}
-
-void eva_set_mouse_dragged_fn(eva_mouse_dragged_fn mouse_dragged_fn)
-{
-    _ctx.mouse_dragged_fn = mouse_dragged_fn;
 }
 
 void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn)
@@ -531,33 +525,11 @@ static void update_window(void)
 }
 - (void)mouseDragged:(NSEvent *)event
 {
-    if (_ctx.mouse_dragged_fn) {
-        NSPoint location = [event locationInWindow];
-        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
-        mouse_pos = [self convertPointToBacking:mouse_pos];
-        mouse_pos.y = _ctx.framebuffer.h - mouse_pos.y;
-        _ctx.mouse_dragged_fn((int32_t)round(mouse_pos.x),
-                              (int32_t)round(mouse_pos.y),
-                              EVA_MOUSE_BTN_LEFT);
-        if (try_frame()) {
-            [self draw];
-        }
-    }
+    [self mouseMoved:event];
 }
 - (void)rightMouseDragged:(NSEvent *)event
 {
-    if (_ctx.mouse_dragged_fn) {
-        NSPoint location = [event locationInWindow];
-        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
-        mouse_pos = [self convertPointToBacking:mouse_pos];
-        mouse_pos.y = _ctx.framebuffer.h - mouse_pos.y;
-        _ctx.mouse_dragged_fn((int32_t)round(mouse_pos.x),
-                              (int32_t)round(mouse_pos.y),
-                              EVA_MOUSE_BTN_RIGHT);
-        if (try_frame()) {
-            [self draw];
-        }
-    }
+    [self mouseMoved:event];
 }
 - (void)scrollWheel:(NSEvent *)event
 {

@@ -528,15 +528,6 @@ void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn);
 void eva_set_scroll_fn(eva_scroll_fn scroll_fn);
 
 /** 
- * @brief Sets a function to be called when the mouse is dragged.
- *
- * See @ref eva_mouse_dragged_fn
- *
- * @ingroup input
- */
-void eva_set_mouse_dragged_fn(eva_mouse_dragged_fn mouse_dragged_fn);
-
-/** 
  * @brief Sets a function to be called when a mouse button is pressed/released.
  *
  * See @ref eva_mouse_btn_fn
