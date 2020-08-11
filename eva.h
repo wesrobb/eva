@@ -315,12 +315,34 @@ typedef void(*eva_frame_fn)(const eva_framebuffer* fb);
 typedef void(*eva_mouse_moved_fn)(int32_t x, int32_t y);
 
 /**
+ * @brief The function pointer type for mouse dragged event callbacks.
+ *
+ * This is the function pointer type for mouse dragged event callbacks. It has
+ * the following signature:
+ * @code
+ * void mouse_dragged(int32_t mouse_x, int32_t mouse_y, eva_mouse_btn btn);
+ * @endcode
+ *
+ * @param[in] x The mouse's new x position relative to the left of the window's
+ * content area.
+ * @param[in] y The mouse's new y position relative to the top of the window's
+ * content area.
+ * @param[in] btn The [button](/ref eva_mouse_btn) that was held during the
+ * dragging movement.
+ *
+ * @see @ref eva_set_mouse_dragged_fn
+ *
+ * @ingroup input
+ */
+typedef void(*eva_mouse_dragged_fn)(int32_t x, int32_t y, eva_mouse_btn);
+
+/**
  * @brief The function pointer type for mouse button event callbacks.
  *
  * This is the function pointer type for mouse button event callbacks. It has
  * the following signature:
  * @code
- * void mouse_button(int32_t x, int32_y, 
+ * void mouse_button(int32_t x, int32_t y, 
  *                   eva_mouse_btn btn, eva_input_action action);
  * @endcode
  *
@@ -337,6 +359,24 @@ typedef void(*eva_mouse_moved_fn)(int32_t x, int32_t y);
  */
 typedef void(*eva_mouse_btn_fn)(int32_t x, int32_t y, 
                                 eva_mouse_btn btn, eva_input_action action);
+
+/**
+ * @brief The function pointer type for scroll event callbacks.
+ *
+ * This is the function pointer type for scroll event callbacks. It has
+ * the following signature:
+ * @code
+ * void scroll(double delta_x, double delta_y);
+ * @endcode
+ *
+ * @param[in] delta_x The scroll offset on the x-axis.
+ * @param[in] delta_y The scroll offset on the y-axis.
+ *
+ * @see @ref eva_set_scroll_fn
+ *
+ * @ingroup input
+ */
+typedef void(*eva_scroll_fn)(double delta_x, double delta_y);
 
 /**
  * @brief The function pointer type for physical key press/release event
@@ -477,6 +517,24 @@ void eva_set_cancel_quit_fn(eva_cancel_quit_fn cancel_quit_fn);
  * @ingroup input
  */
 void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn);
+
+/** 
+ * @brief Sets a function to be called scrolling takes place.
+ *
+ * See @ref eva_scroll_fn
+ *
+ * @ingroup input
+ */
+void eva_set_scroll_fn(eva_scroll_fn scroll_fn);
+
+/** 
+ * @brief Sets a function to be called when the mouse is dragged.
+ *
+ * See @ref eva_mouse_dragged_fn
+ *
+ * @ingroup input
+ */
+void eva_set_mouse_dragged_fn(eva_mouse_dragged_fn mouse_dragged_fn);
 
 /** 
  * @brief Sets a function to be called when a mouse button is pressed/released.

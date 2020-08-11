@@ -38,8 +38,11 @@ typedef struct eva_ctx {
     eva_cancel_quit_fn cancel_quit_fn;
     eva_fail_fn        fail_fn;
 
-    eva_mouse_moved_fn mouse_moved_fn;
-    eva_mouse_btn_fn   mouse_btn_fn;
+    eva_mouse_moved_fn   mouse_moved_fn;
+    eva_mouse_dragged_fn mouse_dragged_fn;
+    eva_mouse_btn_fn     mouse_btn_fn;
+
+    eva_scroll_fn   scroll_fn;
 
     eva_key_fn key_fn;
     int16_t    keycodes[256];
@@ -147,9 +150,19 @@ void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn)
     _ctx.mouse_moved_fn = mouse_moved_fn;
 }
 
+void eva_set_mouse_dragged_fn(eva_mouse_dragged_fn mouse_dragged_fn)
+{
+    _ctx.mouse_dragged_fn = mouse_dragged_fn;
+}
+
 void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn)
 {
     _ctx.mouse_btn_fn = mouse_btn_fn;
+}
+
+void eva_set_scroll_fn(eva_scroll_fn scroll_fn)
+{
+    _ctx.scroll_fn = scroll_fn;
 }
 
 void eva_set_key_fn(eva_key_fn key_fn)
@@ -518,14 +531,49 @@ static void update_window(void)
 }
 - (void)mouseDragged:(NSEvent *)event
 {
-    [self mouseMoved:event];
+    if (_ctx.mouse_dragged_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
+        mouse_pos.y = _ctx.framebuffer.h - mouse_pos.y;
+        _ctx.mouse_dragged_fn((int32_t)round(mouse_pos.x),
+                              (int32_t)round(mouse_pos.y),
+                              EVA_MOUSE_BTN_LEFT);
+        if (try_frame()) {
+            [self draw];
+        }
+    }
 }
 - (void)rightMouseDragged:(NSEvent *)event
 {
-    [self mouseMoved:event];
+    if (_ctx.mouse_dragged_fn) {
+        NSPoint location = [event locationInWindow];
+        NSPoint mouse_pos = [self convertPoint:location fromView:nil];
+        mouse_pos = [self convertPointToBacking:mouse_pos];
+        mouse_pos.y = _ctx.framebuffer.h - mouse_pos.y;
+        _ctx.mouse_dragged_fn((int32_t)round(mouse_pos.x),
+                              (int32_t)round(mouse_pos.y),
+                              EVA_MOUSE_BTN_RIGHT);
+        if (try_frame()) {
+            [self draw];
+        }
+    }
 }
 - (void)scrollWheel:(NSEvent *)event
 {
+    double delta_x = [event scrollingDeltaX];
+    double delta_y = [event scrollingDeltaY];
+
+    if ([event hasPreciseScrollingDeltas])
+    {
+        delta_x *= 0.1;
+        delta_y *= 0.1;
+    }
+
+    if (fabs(delta_x) > 0.0 || fabs(delta_y) > 0.0) {
+        _ctx.scroll_fn(delta_x, delta_y);
+    }
+    
     if (try_frame()) {
         [self draw];
     }
