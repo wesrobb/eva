@@ -300,7 +300,7 @@ typedef void(*eva_frame_fn)(const eva_framebuffer* fb);
  * This is the function pointer type for mouse moved event callbacks. It has
  * the following signature:
  * @code
- * void mouse_moved(int32_t mouse_x, int32_t mouse_y);
+ * void mouse_moved(float mouse_x, float mouse_y);
  * @endcode
  *
  * @param[in] x The mouse's new x position relative to the left of the window's
@@ -312,7 +312,7 @@ typedef void(*eva_frame_fn)(const eva_framebuffer* fb);
  *
  * @ingroup input
  */
-typedef void(*eva_mouse_moved_fn)(int32_t x, int32_t y);
+typedef void(*eva_mouse_moved_fn)(float x, float y);
 
 /**
  * @brief The function pointer type for mouse dragged event callbacks.
@@ -320,7 +320,7 @@ typedef void(*eva_mouse_moved_fn)(int32_t x, int32_t y);
  * This is the function pointer type for mouse dragged event callbacks. It has
  * the following signature:
  * @code
- * void mouse_dragged(int32_t mouse_x, int32_t mouse_y, eva_mouse_btn btn);
+ * void mouse_dragged(float mouse_x, float mouse_y, eva_mouse_btn btn);
  * @endcode
  *
  * @param[in] x The mouse's new x position relative to the left of the window's
@@ -334,7 +334,7 @@ typedef void(*eva_mouse_moved_fn)(int32_t x, int32_t y);
  *
  * @ingroup input
  */
-typedef void(*eva_mouse_dragged_fn)(int32_t x, int32_t y, eva_mouse_btn);
+typedef void(*eva_mouse_dragged_fn)(float x, float y, eva_mouse_btn);
 
 /**
  * @brief The function pointer type for mouse button event callbacks.
@@ -342,7 +342,7 @@ typedef void(*eva_mouse_dragged_fn)(int32_t x, int32_t y, eva_mouse_btn);
  * This is the function pointer type for mouse button event callbacks. It has
  * the following signature:
  * @code
- * void mouse_button(int32_t x, int32_t y, 
+ * void mouse_button(float x, float y, 
  *                   eva_mouse_btn btn, eva_input_action action);
  * @endcode
  *
@@ -357,7 +357,7 @@ typedef void(*eva_mouse_dragged_fn)(int32_t x, int32_t y, eva_mouse_btn);
  *
  * @ingroup input
  */
-typedef void(*eva_mouse_btn_fn)(int32_t x, int32_t y, 
+typedef void(*eva_mouse_btn_fn)(float x, float y, 
                                 eva_mouse_btn btn, eva_input_action action);
 
 /**
