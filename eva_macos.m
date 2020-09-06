@@ -649,9 +649,11 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
         else
             characters = (NSString*) string;
 
-        NSUInteger byte_len =
-            [characters lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-        _ctx.text_input_fn(characters.UTF8String, (uint32_t)byte_len, mods);
+        uint32_t len = [characters length];
+        uint16_t *buffer = malloc(len * sizeof(uint16_t));
+        [characters getCharacters:buffer range:NSMakeRange(0, len)];
+
+        _ctx.text_input_fn(buffer, len, mods);
 
         if (try_frame()) {
             [self draw];
@@ -782,7 +784,7 @@ static bool try_frame()
     if (_ctx.request_frame) {
         _ctx.request_frame = false;
 
-        // There is a chance that the frame_fn is not sent and the application
+        // There is a chance that the frame_fn is not set and the application
         // is just writing directly to the framebuffer in the event handlers
         // and then requesting to draw with eva_request_frame(). In this case
         // we still want to draw.

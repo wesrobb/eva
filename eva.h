@@ -406,12 +406,12 @@ typedef void(*eva_key_fn)(eva_key key, eva_input_action action,
  * This is the function pointer type for the unicode text input event callback. 
  * It has the following signature:
  * @code
- * void text_input(const char* utf8_text, uint32_t len, eva_mod_flags mods);
+ * void text_input(const uint16_t* utf16_text, uint32_t len, eva_mod_flags mods);
  * @endcode
  *
- * @param[in] utf8_text The UTF8 encoded text that was input via key-presses or
+ * @param[in] utf8_text The UTF16 encoded text that was input via key-presses or
  * via paste.
- * @param[in] len The length of the text in bytes.
+ * @param[in] len The length of the text in UTF16 characters.
  * @param[in] mod The [modifier keys](/ref eva_mod_flags) that were active at
  * the time the text input occurred.
  *
@@ -419,7 +419,7 @@ typedef void(*eva_key_fn)(eva_key key, eva_input_action action,
  *
  * @ingroup input
  */
-typedef void(*eva_text_input_fn)(const char *utf8_text, uint32_t len,
+typedef void(*eva_text_input_fn)(const uint16_t *utf16_text, uint32_t len,
                                  eva_mod_flags mod);
 
 /**
