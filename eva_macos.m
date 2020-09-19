@@ -649,7 +649,7 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
         else
             characters = (NSString*) string;
 
-        uint32_t len = [characters length];
+        uint32_t len = (uint32_t)[characters length];
         uint16_t *buffer = malloc(len * sizeof(uint16_t));
         [characters getCharacters:buffer range:NSMakeRange(0, len)];
 
@@ -787,7 +787,7 @@ static bool try_frame()
         // There is a chance that the frame_fn is not set and the application
         // is just writing directly to the framebuffer in the event handlers
         // and then requesting to draw with eva_request_frame(). In this case
-        // we still want to draw.
+        // we still want to draw but don't have a frame function to call.
         if (_ctx.frame_fn) {
             _ctx.frame_fn(&_ctx.framebuffer);
         }
