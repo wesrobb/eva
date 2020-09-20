@@ -653,6 +653,12 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
         uint16_t *buffer = malloc(len * sizeof(uint16_t));
         [characters getCharacters:buffer range:NSMakeRange(0, len)];
 
+        uint16_t c = buffer[0];
+        if (c < 32 || (c > 126 && c < 160)) {
+            return;
+        }
+        
+
         _ctx.text_input_fn(buffer, len, mods);
 
         if (try_frame()) {
