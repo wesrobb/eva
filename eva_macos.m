@@ -272,7 +272,6 @@ static void update_window(void)
     // Setup view
     _app_view = [[eva_view alloc] init];
     _app_view.device = _ctx.mtl_device;
-    _app_view.paused = YES;
     _app_view.enableSetNeedsDisplay = NO;
     [_app_view updateTrackingAreas];
     eva_view_delegate *viewController = [[eva_view_delegate alloc] init];
@@ -280,7 +279,7 @@ static void update_window(void)
 
     [_app_window makeFirstResponder:_app_view];
     [_app_window center];
-    [_app_window makeKeyAndOrderFront:nil];
+    [_app_window makeKeyAndOrderFront:_app_view];
 
     if (_ctx.init_fn) {
         _ctx.init_fn();
@@ -379,7 +378,7 @@ static void update_window(void)
 {
     return YES;
 }
-- (BOOL)canBecomeKey
+- (BOOL)canBecomeKeyView
 {
     return YES;
 }
@@ -657,7 +656,6 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
         if (c < 32 || (c > 126 && c < 160)) {
             return;
         }
-        
 
         _ctx.text_input_fn(buffer, len, mods);
 
@@ -665,6 +663,12 @@ static const NSRange kEmptyRange = { NSNotFound, 0 };
             [self draw];
         }
     }
+}
+
+- (void)doCommandBySelector:(SEL)selector
+{
+    // Stop the annoying "no suitable handler" beep that occurs when
+    // "interpretKeyEvents" cannot find the this function.
 }
 
 @end
