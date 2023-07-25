@@ -2,61 +2,36 @@
 
 #include <stdio.h>
 
-static eva_rect rect;
+typedef struct rectangle {
+    int x, y, w, h;
+} rectangle;
 
-void clear()
+static rectangle rect;
+
+void clear(const eva_framebuffer *fb)
 {
-    eva_pixel *framebuffer = eva_get_framebuffer();
-    int32_t framebuffer_width = eva_get_framebuffer_width();
-    int32_t framebuffer_height = eva_get_framebuffer_height();
-
     eva_pixel gray = { .r = 20, .g = 20, .b = 20, .a = 255 };
-    for (int j = 0; j < framebuffer_height; j++) {
-        for (int i = 0; i < framebuffer_width; i++) {
-            framebuffer[i + j * framebuffer_width] = gray;
+    for (int j = 0; j < fb->h; j++) {
+        for (int i = 0; i < fb->w; i++) {
+            fb->pixels[i + j * fb->w] = gray;
         }
     }
 }
 
-void draw_rect()
+void draw_rect(const eva_framebuffer *fb)
 {
-    eva_pixel *framebuffer = eva_get_framebuffer();
-    int32_t framebuffer_width = eva_get_framebuffer_width();
-
     eva_pixel red = { .r = 255, .g = 0, .b = 0, .a = 255 };
     for (int j = rect.y; j < rect.y + rect.h; j++) {
         for (int i = rect.x; i < rect.x + rect.w; i++) {
-            framebuffer[i + j * framebuffer_width] = red;
+            fb->pixels[i + j * fb->w] = red;
         }
     }
 }
 
-void event(eva_event *e)
+void frame(const eva_framebuffer *fb)
 {
-    int32_t delta_x = 0;
-    bool full_frame = false;
-    switch (e->type) {
-    case EVA_EVENTTYPE_WINDOW:
-        puts("Received eva window event");
-        break;
-    case EVA_EVENTTYPE_MOUSE:
-        return;
-        break;
-    case EVA_EVENTTYPE_KB:
-        delta_x += 10;
-        puts("Received eva keyboard event");
-        break;
-    case EVA_EVENTTYPE_REDRAWFRAME:
-        puts("Full frame requested");
-        full_frame = true;
-        break;
-    }
-    puts("drawing");
-    rect.x += delta_x;
-    clear();
-    draw_rect();
-
-    eva_request_frame();
+    clear(fb);
+    draw_rect(fb);
 }
 
 void init()
@@ -78,8 +53,13 @@ void fail(int error_code, const char *error_message)
     printf("Error %d: %s\n", error_code, error_message);
 }
 
+#ifdef EVA_WINDOWS
+#include <Windows.h>
+int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
+#else
 int main()
+#endif
 {
-    eva_run("Hello, eva!", init, event, cleanup, fail);
+    eva_run("Hello, eva!", frame, fail);
     return 0;
 }

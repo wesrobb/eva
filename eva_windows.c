@@ -23,14 +23,18 @@ typedef struct eva_ctx {
     bool        quit_requested;
     bool        quit_ordered;
 
-    eva_init_fn        init_fn;
-    eva_event_fn       event_fn;
-    eva_frame_fn       frame_fn;
-    eva_cleanup_fn     cleanup_fn;
-    eva_fail_fn        fail_fn;
-    eva_cancel_quit_fn cancel_quit_fn;
-    eva_mouse_moved_fn mouse_moved_fn;
-    eva_mouse_btn_fn   mouse_btn_fn;
+    eva_init_fn          init_fn;
+    eva_frame_fn         frame_fn;
+    eva_cleanup_fn       cleanup_fn;
+    eva_fail_fn          fail_fn;
+    eva_cancel_quit_fn   cancel_quit_fn;
+    eva_mouse_moved_fn   mouse_moved_fn;
+    eva_mouse_dragged_fn mouse_dragged_fn;
+    eva_mouse_btn_fn     mouse_btn_fn;
+    eva_scroll_fn        scroll_fn;
+    eva_key_fn           key_fn;
+    eva_text_input_fn    text_input_fn;
+    eva_window_resize_fn window_resize_fn;
 
     LARGE_INTEGER ticks_per_sec;
     HWND hwnd;
@@ -42,14 +46,16 @@ typedef struct eva_ctx {
 static eva_ctx _ctx;
 
 void eva_run(const char    *window_title,
-             eva_event_fn   event_fn,
              eva_frame_fn   frame_fn,
              eva_fail_fn    fail_fn)
 {
+    assert(window_title);
+    assert(frame_fn);
+    assert(fail_fn);
+
     eva_time_init();
 
     _ctx.window_title = window_title;
-    _ctx.event_fn     = event_fn;
     _ctx.frame_fn     = frame_fn;
     _ctx.fail_fn      = fail_fn;
 
@@ -94,13 +100,12 @@ void eva_run(const char    *window_title,
                                 GetModuleHandleW(NULL),
                                 NULL);
     update_window();
-    _ctx.init_fn();
+    if (_ctx.init_fn) {
+        _ctx.init_fn();
+    }
 
     // Let the application full it's framebuffer before showing the window.
-    eva_event event = {
-        .type = EVA_EVENTTYPE_REDRAWFRAME,
-    };
-    _ctx.event_fn(&event);
+    _ctx.frame_fn(&_ctx.framebuffer);
 
     ShowWindow(_ctx.hwnd, SW_SHOW);
     _ctx.window_shown = true;
@@ -168,9 +173,34 @@ void eva_set_mouse_moved_fn(eva_mouse_moved_fn mouse_moved_fn)
     _ctx.mouse_moved_fn = mouse_moved_fn;
 }
 
+void eva_set_mouse_dragged_fn(eva_mouse_dragged_fn mouse_dragged_fn)
+{
+    _ctx.mouse_dragged_fn = mouse_dragged_fn;
+}
+
 void eva_set_mouse_btn_fn(eva_mouse_btn_fn mouse_btn_fn)
 {
     _ctx.mouse_btn_fn = mouse_btn_fn;
+}
+
+void eva_set_scroll_fn(eva_scroll_fn scroll_fn)
+{
+    _ctx.scroll_fn = scroll_fn;
+}
+
+void eva_set_key_fn(eva_key_fn key_fn)
+{
+    _ctx.key_fn = key_fn;
+}
+
+void eva_set_text_input_fn(eva_text_input_fn text_input_fn)
+{
+    _ctx.text_input_fn = text_input_fn;
+}
+
+void eva_set_window_resize_fn(eva_window_resize_fn window_resize_fn)
+{
+    _ctx.window_resize_fn = window_resize_fn;
 }
 
 void eva_time_init()
@@ -217,7 +247,7 @@ static LRESULT CALLBACK wnd_proc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         switch (uMsg) {
             case WM_CLOSE:
                 handle_close();
-                return 0;
+                break;
             case WM_DPICHANGED:
                 puts("WM_DPICHANGED");
                 update_window();
@@ -403,6 +433,10 @@ static void handle_close()
         if (_ctx.cancel_quit_fn) {
             _ctx.quit_requested = !_ctx.cancel_quit_fn();
         }
+        else {
+            _ctx.quit_requested = true;
+        }
+
         // user code hasn't intervened, quit the app
         if (_ctx.quit_requested) {
             _ctx.quit_ordered = true;
@@ -416,16 +450,9 @@ static void handle_close()
 static void handle_resize()
 {
     update_window();
-    eva_event event = {
-        .type = EVA_EVENTTYPE_WINDOW,
-        .window.window_width = _ctx.window_width,
-        .window.window_height = _ctx.window_height,
-        .window.framebuffer_width = _ctx.framebuffer.w,
-        .window.framebuffer_height = _ctx.framebuffer.h,
-        .window.scale_x = _ctx.framebuffer.scale_x,
-        .window.scale_y = _ctx.framebuffer.scale_y,
-    };
-    _ctx.event_fn(&event);
+    if (_ctx.window_resize_fn) {
+        _ctx.window_resize_fn(_ctx.framebuffer.w, _ctx.framebuffer.h);
+    }
 }
 
 static void try_frame()
